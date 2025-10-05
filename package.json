@@ -9,7 +9,8 @@
     "seed:admin": "node seed/adminSeeder.js",
     "dev": "nodemon server.js",
     "setup": "node setup-website-backend.js",
-    "test:website": "node test-website-api.js"
+    "test:website": "node test-website-api.js",
+    "test:shiprocket": "node test-shiprocket.js"
   },
   "keywords": [],
   "author": "",

@@ -53,6 +53,7 @@ app.use("/api/website/cart", require("./Routes/websiteCartRoute"));
 app.use("/api/website/wishlist", require("./Routes/websiteWishlistRoute"));
 app.use("/api/website/orders", require("./Routes/websiteOrderRoute"));
 app.use("/api/website", require("./Routes/websiteContactRoute"));
+app.use("/api/website", require("./Routes/shiprocketRoute"));
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on port ${port}`);

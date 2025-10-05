@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 
-// Variant schema for product variants
-const variantSchema = new mongoose.Schema({
-  color: {
+// Size stock schema for individual size inventory tracking
+const sizeStockSchema = new mongoose.Schema({
+  size: {
     type: String,
     required: true,
   },
@@ -10,9 +10,23 @@ const variantSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0,
+    default: 0,
   },
-  sizes: {
-    type: [String],
+  available: {
+    type: Boolean,
+    required: true,
+    default: false,
+  }
+}, { _id: false });
+
+// Variant schema for product variants
+const variantSchema = new mongoose.Schema({
+  color: {
+    type: String,
+    required: true,
+  },
+  sizeStocks: {
+    type: [sizeStockSchema],
     required: true,
     validate: {
       validator: function(v) {
@@ -20,6 +34,12 @@ const variantSchema = new mongoose.Schema({
       },
       message: 'At least one size must be specified'
     }
+  },
+  totalStock: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 0,
   },
   images: {
     type: [String],
@@ -30,6 +50,15 @@ const variantSchema = new mongoose.Schema({
       },
       message: 'At least one image must be specified'
     }
+  },
+  
+  // Legacy fields for backward compatibility (optional)
+  stock: {
+    type: Number,
+    min: 0,
+  },
+  sizes: {
+    type: [String],
   }
 }, { _id: true });
 

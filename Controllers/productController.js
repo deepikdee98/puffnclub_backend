@@ -56,10 +56,43 @@ const createProduct = asyncHandler(async (req, res) => {
         
         const processedVariant = {
           color: variant.color,
-          stock: parseInt(variant.stock),
-          sizes: typeof variant.sizes === 'string' ? variant.sizes.split(',').map(s => s.trim()).filter(Boolean) : variant.sizes,
-          images: []
+          images: [],
+          existingImages: []
         };
+        
+        // Handle new sizeStocks structure
+        if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+          console.log(`Variant ${index} has sizeStocks array:`, variant.sizeStocks);
+          processedVariant.sizeStocks = variant.sizeStocks.map(ss => ({
+            size: ss.size,
+            stock: parseInt(ss.stock) || 0,
+            available: ss.available === true || ss.available === 'true'
+          }));
+          // Calculate total stock from sizeStocks
+          processedVariant.totalStock = processedVariant.sizeStocks.reduce((sum, ss) => sum + ss.stock, 0);
+        } else {
+          // Fallback to old structure for backward compatibility
+          console.log(`Variant ${index} using legacy structure`);
+          processedVariant.stock = parseInt(variant.stock) || 0;
+          processedVariant.totalStock = processedVariant.stock;
+          processedVariant.sizes = typeof variant.sizes === 'string' 
+            ? variant.sizes.split(',').map(s => s.trim()).filter(Boolean) 
+            : variant.sizes;
+        }
+        
+        // Handle existing images
+        if (variant.existingImages) {
+          if (Array.isArray(variant.existingImages)) {
+            processedVariant.existingImages = variant.existingImages;
+          } else if (typeof variant.existingImages === 'string') {
+            try {
+              processedVariant.existingImages = JSON.parse(variant.existingImages);
+            } catch (e) {
+              console.warn(`Failed to parse existingImages for variant ${index}`);
+              processedVariant.existingImages = [];
+            }
+          }
+        }
         
         variantColors.add(variant.color);
         console.log(`Processed variant ${index}:`, processedVariant);
@@ -78,7 +111,7 @@ const createProduct = asyncHandler(async (req, res) => {
             const variantIndex = parseInt(index);
             
             if (!variants[variantIndex]) {
-              variants[variantIndex] = { images: [] };
+              variants[variantIndex] = { images: [], existingImages: [] };
             }
             
             if (field === 'color') {
@@ -87,6 +120,7 @@ const createProduct = asyncHandler(async (req, res) => {
               console.log(`Set variant ${variantIndex} color to: ${req.body[key]}`);
             } else if (field === 'stock') {
               variants[variantIndex].stock = parseInt(req.body[key]);
+              variants[variantIndex].totalStock = variants[variantIndex].stock;
               console.log(`Set variant ${variantIndex} stock to: ${req.body[key]}`);
             } else if (field === 'sizes') {
               variants[variantIndex].sizes = req.body[key].split(',').map(s => s.trim()).filter(Boolean);
@@ -134,6 +168,17 @@ const createProduct = asyncHandler(async (req, res) => {
     } else {
       console.log("No files uploaded");
     }
+    
+    // Merge existing images with new images for each variant
+    variants.forEach((variant, index) => {
+      const existingImages = variant.existingImages || [];
+      const newImages = variant.images || [];
+      variant.images = [...existingImages, ...newImages];
+      console.log(`Variant ${index} (${variant.color}): ${existingImages.length} existing + ${newImages.length} new = ${variant.images.length} total images`);
+      // Clean up temporary existingImages field
+      delete variant.existingImages;
+    });
+    
     console.log("=== END PROCESSING VARIANT IMAGES ===");
 
     console.log("=== VARIANTS VALIDATION ===");
@@ -156,16 +201,33 @@ const createProduct = asyncHandler(async (req, res) => {
         res.status(400);
         throw new Error(`Variant ${i + 1} is missing color`);
       }
-      if (variant.stock === undefined) {
-        console.log(`Variant ${i + 1} missing stock:`, variant.stock);
-        res.status(400);
-        throw new Error(`Variant ${i + 1} is missing stock`);
+      
+      // Check for new sizeStocks structure or legacy sizes/stock
+      if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+        if (variant.sizeStocks.length === 0) {
+          console.log(`Variant ${i + 1} has empty sizeStocks array`);
+          res.status(400);
+          throw new Error(`Variant ${i + 1} must have at least one size`);
+        }
+        if (variant.totalStock === undefined) {
+          console.log(`Variant ${i + 1} missing totalStock`);
+          res.status(400);
+          throw new Error(`Variant ${i + 1} is missing totalStock`);
+        }
+      } else {
+        // Legacy validation
+        if (variant.stock === undefined) {
+          console.log(`Variant ${i + 1} missing stock:`, variant.stock);
+          res.status(400);
+          throw new Error(`Variant ${i + 1} is missing stock`);
+        }
+        if (!variant.sizes || variant.sizes.length === 0) {
+          console.log(`Variant ${i + 1} missing sizes:`, variant.sizes);
+          res.status(400);
+          throw new Error(`Variant ${i + 1} is missing sizes`);
+        }
       }
-      if (!variant.sizes || variant.sizes.length === 0) {
-        console.log(`Variant ${i + 1} missing sizes:`, variant.sizes);
-        res.status(400);
-        throw new Error(`Variant ${i + 1} is missing sizes`);
-      }
+      
       if (!variant.images || variant.images.length === 0) {
         console.log(`Variant ${i + 1} missing images:`, variant.images);
         res.status(400);
@@ -175,6 +237,16 @@ const createProduct = asyncHandler(async (req, res) => {
 
     console.log("Processed variants:", variants);
 
+    // Handle tags - can be array or string
+    let processedTags = [];
+    if (tags) {
+      if (Array.isArray(tags)) {
+        processedTags = tags;
+      } else if (typeof tags === 'string') {
+        processedTags = tags.split(",").map(s => s.trim()).filter(Boolean);
+      }
+    }
+    
     // Create the product with variant structure
     const newProduct = new Product({
       name,
@@ -186,7 +258,7 @@ const createProduct = asyncHandler(async (req, res) => {
       comparePrice: comparePrice ? Number(comparePrice) : undefined,
       status: status.toLowerCase(), // Convert to lowercase for consistency
       isFeatured: isFeatured === "true" || isFeatured === true,
-      tags: tags ? tags.split(",").map(s => s.trim()).filter(Boolean) : [],
+      tags: processedTags,
       variants: variants,
       metaTitle: metaTitle || undefined,
       metaDescription: metaDescription || undefined,
@@ -342,19 +414,44 @@ const updateProductById = asyncHandler(async (req, res) => {
         variants = req.body.variants.map((variant, index) => {
           const processedVariant = {
             color: variant.color,
-            stock: parseInt(variant.stock),
-            sizes: variant.sizes.split(',').map(s => s.trim()).filter(Boolean),
             images: [],
             existingImages: []
           };
           
+          // Handle new sizeStocks structure
+          if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+            console.log(`Variant ${index} has sizeStocks array:`, variant.sizeStocks);
+            processedVariant.sizeStocks = variant.sizeStocks.map(ss => ({
+              size: ss.size,
+              stock: parseInt(ss.stock) || 0,
+              available: ss.available === true || ss.available === 'true'
+            }));
+            // Calculate total stock from sizeStocks
+            processedVariant.totalStock = variant.totalStock !== undefined 
+              ? parseInt(variant.totalStock) 
+              : processedVariant.sizeStocks.reduce((sum, ss) => sum + ss.stock, 0);
+          } else {
+            // Fallback to old structure for backward compatibility
+            console.log(`Variant ${index} using legacy structure`);
+            processedVariant.stock = parseInt(variant.stock) || 0;
+            processedVariant.totalStock = processedVariant.stock;
+            processedVariant.sizes = typeof variant.sizes === 'string'
+              ? variant.sizes.split(',').map(s => s.trim()).filter(Boolean)
+              : variant.sizes;
+          }
+          
           // Parse existing images if provided
           if (variant.existingImages) {
-            try {
-              processedVariant.existingImages = JSON.parse(variant.existingImages);
-              console.log(`Parsed existing images for variant ${index} (${variant.color}):`, processedVariant.existingImages);
-            } catch (e) {
-              console.warn(`Failed to parse existing images for variant ${index}:`, variant.existingImages);
+            if (Array.isArray(variant.existingImages)) {
+              processedVariant.existingImages = variant.existingImages;
+            } else if (typeof variant.existingImages === 'string') {
+              try {
+                processedVariant.existingImages = JSON.parse(variant.existingImages);
+                console.log(`Parsed existing images for variant ${index} (${variant.color}):`, processedVariant.existingImages);
+              } catch (e) {
+                console.warn(`Failed to parse existing images for variant ${index}:`, variant.existingImages);
+                processedVariant.existingImages = [];
+              }
             }
           }
           
@@ -453,14 +550,37 @@ const updateProductById = asyncHandler(async (req, res) => {
       if (variants.length > 0) {
         for (let i = 0; i < variants.length; i++) {
           const variant = variants[i];
-          if (!variant.color || variant.stock === undefined || !variant.sizes || variant.sizes.length === 0) {
-            console.log(`Variant ${i + 1} validation failed:`, {
-              color: variant.color,
-              stock: variant.stock,
-              sizes: variant.sizes
-            });
-            return res.status(400).json({ error: `Variant ${i + 1} (${variant.color || 'Unknown color'}) is missing required fields (color, stock, or sizes)` });
+          
+          // Validate color
+          if (!variant.color) {
+            console.log(`Variant ${i + 1} validation failed - missing color`);
+            return res.status(400).json({ error: `Variant ${i + 1} is missing color` });
           }
+          
+          // Validate size/stock structure
+          if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+            // New structure validation
+            if (variant.sizeStocks.length === 0) {
+              console.log(`Variant ${i + 1} (${variant.color}) has empty sizeStocks array`);
+              return res.status(400).json({ error: `Variant "${variant.color}" must have at least one size` });
+            }
+            if (variant.totalStock === undefined) {
+              console.log(`Variant ${i + 1} (${variant.color}) missing totalStock`);
+              return res.status(400).json({ error: `Variant "${variant.color}" is missing totalStock` });
+            }
+          } else {
+            // Legacy structure validation
+            if (variant.stock === undefined || !variant.sizes || variant.sizes.length === 0) {
+              console.log(`Variant ${i + 1} validation failed:`, {
+                color: variant.color,
+                stock: variant.stock,
+                sizes: variant.sizes
+              });
+              return res.status(400).json({ error: `Variant ${i + 1} (${variant.color || 'Unknown color'}) is missing required fields (color, stock, or sizes)` });
+            }
+          }
+          
+          // Validate images
           if (!variant.images || variant.images.length === 0) {
             console.log(`Variant ${i + 1} (${variant.color}) has no images after processing`);
             // For new variants (colors that don't exist in the original product), require at least one image
@@ -502,8 +622,10 @@ const updateProductById = asyncHandler(async (req, res) => {
       console.log("Variants being saved to database:", updateData.variants.map((v, i) => ({
         index: i,
         color: v.color,
-        stock: v.stock,
-        sizes: v.sizes,
+        sizeStocks: v.sizeStocks,
+        totalStock: v.totalStock,
+        stock: v.stock, // legacy
+        sizes: v.sizes, // legacy
         imageCount: v.images ? v.images.length : 0
       })));
     }

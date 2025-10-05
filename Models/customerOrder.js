@@ -124,6 +124,41 @@ const customerOrderSchema = mongoose.Schema(
     cancellationReason: {
       type: String,
     },
+    // Shiprocket specific fields
+    shiprocketOrderId: {
+      type: String,
+    },
+    shipmentId: {
+      type: String,
+    },
+    awbCode: {
+      type: String,
+    },
+    courierCompanyId: {
+      type: String,
+    },
+    courierName: {
+      type: String,
+    },
+    shippingCharges: {
+      type: Number,
+      default: 0,
+    },
+    pickupScheduledDate: {
+      type: Date,
+    },
+    expectedDeliveryDate: {
+      type: Date,
+    },
+    currentStatus: {
+      type: String,
+    },
+    currentStatusCode: {
+      type: String,
+    },
+    trackingUrl: {
+      type: String,
+    },
   },
   {
     timestamps: true,

@@ -6,6 +6,8 @@ const {
   updateCustomerProfile,
   logoutCustomer,
   refreshToken,
+  forgotPassword,
+  resetPassword,
 } = require("../Controllers/websiteAuthController");
 const {
   sendOtp,
@@ -20,6 +22,10 @@ const router = express.Router();
 router.post("/register", registerCustomer);
 router.post("/login", loginCustomer);
 router.post("/refresh-token", refreshToken);
+
+// Password reset routes (public)
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 // OTP routes (public)
 router.post("/send-otp", sendOtp);

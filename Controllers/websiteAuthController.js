@@ -1,8 +1,9 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const bcrypt = require("bcrypt");
 const Customer = require("../Models/customer");
 const Otp = require("../Models/otp");
 const { sendEmail } = require("../Utils/gmailSender");
-const otpStorage = new Map();
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -301,6 +302,230 @@ const refreshToken = async (req, res) => {
   }
 };
 
+// @desc    Forgot password - Send reset token via email
+// @route   POST /api/website/auth/forgot-password
+// @access  Public
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Validation
+    if (!email) {
+      return res.status(400).json({ error: "Please provide email address" });
+    }
+
+    // Check if customer exists
+    const customer = await Customer.findOne({ email });
+
+    if (!customer) {
+      // Don't reveal if email exists or not for security
+      return res.json({
+        message: "If an account exists with this email, you will receive a password reset link shortly.",
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    
+    // Hash token before saving to database
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    // Save hashed token and expiry to customer
+    customer.resetPasswordToken = hashedToken;
+    customer.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+    await customer.save();
+
+    // Create reset URL (frontend URL)
+    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/website/auth/reset-password?token=${resetToken}`;
+
+    // Email content
+    const emailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 12px 30px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+          .warning { background-color: #FEF3C7; padding: 15px; border-left: 4px solid #F59E0B; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password Reset Request</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${customer.firstName},</p>
+            <p>We received a request to reset your password. Click the button below to create a new password:</p>
+            <div style="text-align: center;">
+              <a href="${resetUrl}" class="button">Reset Password</a>
+            </div>
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #4F46E5;">${resetUrl}</p>
+            <div class="warning">
+              <strong>⚠️ Important:</strong>
+              <ul>
+                <li>This link will expire in 1 hour</li>
+                <li>If you didn't request this, please ignore this email</li>
+                <li>Your password won't change until you create a new one</li>
+              </ul>
+            </div>
+            <p>If you have any questions, please contact our support team.</p>
+            <p>Best regards,<br>The Support Team</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email. Please do not reply to this message.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const emailText = `
+      Password Reset Request
+      
+      Hi ${customer.firstName},
+      
+      We received a request to reset your password. Click the link below to create a new password:
+      
+      ${resetUrl}
+      
+      This link will expire in 1 hour.
+      
+      If you didn't request this, please ignore this email. Your password won't change until you create a new one.
+      
+      Best regards,
+      The Support Team
+    `;
+
+    // Send email
+    await sendEmail({
+      to: customer.email,
+      subject: "Password Reset Request",
+      text: emailText,
+      html: emailHtml,
+    });
+
+    console.log(`[forgotPassword] Reset email sent to: ${customer.email}`);
+
+    res.json({
+      message: "If an account exists with this email, you will receive a password reset link shortly.",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Error sending password reset email. Please try again later." });
+  }
+};
+
+// @desc    Reset password using token
+// @route   POST /api/website/auth/reset-password
+// @access  Public
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password, confirmPassword } = req.body;
+
+    // Validation
+    if (!token || !password || !confirmPassword) {
+      return res.status(400).json({ error: "Please provide token, password, and confirm password" });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: "Passwords do not match" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters long" });
+    }
+
+    // Hash the token from URL to compare with database
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    // Find customer with valid token
+    const customer = await Customer.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() }, // Token not expired
+    });
+
+    if (!customer) {
+      return res.status(400).json({ error: "Invalid or expired reset token. Please request a new password reset." });
+    }
+
+    // Update password and clear reset token fields
+    // Note: Password will be automatically hashed by the pre-save hook in Customer model
+    customer.password = password;
+    customer.resetPasswordToken = null;
+    customer.resetPasswordExpires = null;
+    await customer.save();
+
+    console.log(`[resetPassword] Password reset successful for: ${customer.email}`);
+
+    // Send confirmation email
+    const confirmationEmailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #10B981; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+          .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+          .success { background-color: #D1FAE5; padding: 15px; border-left: 4px solid #10B981; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✓ Password Reset Successful</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${customer.firstName},</p>
+            <div class="success">
+              <strong>Your password has been successfully reset!</strong>
+            </div>
+            <p>You can now log in to your account using your new password.</p>
+            <p>If you didn't make this change, please contact our support team immediately.</p>
+            <p>Best regards,<br>The Support Team</p>
+          </div>
+          <div class="footer">
+            <p>This is an automated email. Please do not reply to this message.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    try {
+      await sendEmail({
+        to: customer.email,
+        subject: "Password Reset Successful",
+        text: `Hi ${customer.firstName},\n\nYour password has been successfully reset. You can now log in with your new password.\n\nIf you didn't make this change, please contact support immediately.\n\nBest regards,\nThe Support Team`,
+        html: confirmationEmailHtml,
+      });
+    } catch (emailError) {
+      console.error("Error sending confirmation email:", emailError);
+      // Don't fail the request if confirmation email fails
+    }
+
+    res.json({
+      message: "Password reset successful. You can now log in with your new password.",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: "Error resetting password. Please try again later." });
+  }
+};
+
 module.exports = {
   registerCustomer,
   loginCustomer,
@@ -308,4 +533,6 @@ module.exports = {
   updateCustomerProfile,
   logoutCustomer,
   refreshToken,
+  forgotPassword,
+  resetPassword,
 };

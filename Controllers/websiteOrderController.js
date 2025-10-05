@@ -1,6 +1,7 @@
 const CustomerOrder = require("../Models/customerOrder");
 const Cart = require("../Models/cart");
 const Product = require("../Models/productdetails");
+const shiprocketService = require("../Utils/shiprocketService");
 
 // @desc    Create new customer order
 // @route   POST /api/website/orders
@@ -13,6 +14,8 @@ const createCustomerOrder = async (req, res) => {
       billingAddress,
       paymentMethod,
       notes,
+      selectedCourier,
+      shippingCharges,
     } = req.body;
     const customerId = req.customer.id;
 
@@ -63,8 +66,8 @@ const createCustomerOrder = async (req, res) => {
       });
     }
 
-    // Calculate totals (you can add tax and shipping logic here)
-    const shippingCost = subtotal > 100 ? 0 : 10; // Free shipping over $100
+    // Calculate totals with Shiprocket shipping charges
+    const shippingCost = shippingCharges || (subtotal > 100 ? 0 : 10); // Use provided shipping charges or default logic
     const tax = subtotal * 0.08; // 8% tax
     const total = subtotal + shippingCost + tax;
 
@@ -80,9 +83,46 @@ const createCustomerOrder = async (req, res) => {
       tax,
       total,
       notes,
+      courierCompanyId: selectedCourier?.courierId,
+      courierName: selectedCourier?.courierName,
+      shippingCharges: shippingCost,
     });
 
     const savedOrder = await order.save();
+
+    // Create order in Shiprocket after successful database save
+    try {
+      const shiprocketOrderData = {
+        orderNumber: savedOrder.orderNumber,
+        orderDate: savedOrder.createdAt.toISOString().split('T')[0],
+        items: orderItems,
+        shippingAddress,
+        billingAddress,
+        paymentMethod,
+        subtotal,
+        notes,
+        shippingIsBilling: JSON.stringify(shippingAddress) === JSON.stringify(billingAddress)
+      };
+
+      const shiprocketResponse = await shiprocketService.createOrder(shiprocketOrderData);
+      
+      if (shiprocketResponse.status === 1 && shiprocketResponse.order_id) {
+        // Update order with Shiprocket details
+        savedOrder.shiprocketOrderId = shiprocketResponse.order_id.toString();
+        savedOrder.shipmentId = shiprocketResponse.shipment_id?.toString();
+        await savedOrder.save();
+        
+        console.log(`Order ${savedOrder.orderNumber} created in Shiprocket with ID: ${shiprocketResponse.order_id}`);
+      } else {
+        console.error('Failed to create order in Shiprocket:', shiprocketResponse);
+        // Order is still created in our system, but not in Shiprocket
+        // You might want to handle this case differently
+      }
+    } catch (shiprocketError) {
+      console.error('Shiprocket order creation error:', shiprocketError.message);
+      // Order is still created in our system, but not in Shiprocket
+      // You might want to implement retry logic or manual sync
+    }
 
     // Update product stock
     for (const item of items) {
@@ -218,6 +258,17 @@ const cancelOrder = async (req, res) => {
     order.cancellationReason = cancellationReason || "Cancelled by customer";
 
     await order.save();
+
+    // Cancel order in Shiprocket if it exists
+    if (order.shiprocketOrderId) {
+      try {
+        await shiprocketService.cancelOrder(order.shiprocketOrderId);
+        console.log(`Order ${order.orderNumber} cancelled in Shiprocket`);
+      } catch (shiprocketError) {
+        console.error('Failed to cancel order in Shiprocket:', shiprocketError.message);
+        // Order is still cancelled in our system
+      }
+    }
 
     // Restore product stock
     for (const item of order.items) {

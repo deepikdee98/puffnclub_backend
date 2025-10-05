@@ -9,12 +9,20 @@ const transformProductData = (product) => {
   // Clean up variants - remove incomplete/empty variants
   let cleanVariants = [];
   if (productObj.variants && Array.isArray(productObj.variants)) {
-    cleanVariants = productObj.variants.filter(variant => 
-      variant.color && 
-      variant.stock !== undefined && 
-      variant.sizes && variant.sizes.length > 0 &&
-      variant.images && variant.images.length > 0
-    );
+    cleanVariants = productObj.variants.filter(variant => {
+      // Check for new structure (sizeStocks)
+      if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+        return variant.color && 
+               variant.sizeStocks.length > 0 &&
+               variant.totalStock !== undefined &&
+               variant.images && variant.images.length > 0;
+      }
+      // Check for legacy structure (sizes/stock)
+      return variant.color && 
+             variant.stock !== undefined && 
+             variant.sizes && variant.sizes.length > 0 &&
+             variant.images && variant.images.length > 0;
+    });
   }
   
   // If no valid variants, create a fallback variant from legacy fields
@@ -22,6 +30,7 @@ const transformProductData = (product) => {
     const fallbackVariant = {
       color: productObj.color || 'Default',
       stock: productObj.stockQuantity || productObj.stock || 0,
+      totalStock: productObj.stockQuantity || productObj.stock || 0,
       sizes: productObj.availableSizes || [],
       images: productObj.images || []
     };
@@ -33,13 +42,23 @@ const transformProductData = (product) => {
   }
   
   // Calculate total stock from variants
-  const totalStock = cleanVariants.reduce((sum, variant) => sum + (variant.stock || 0), 0);
+  const totalStock = cleanVariants.reduce((sum, variant) => {
+    // Use totalStock if available (new structure), otherwise use stock (legacy)
+    return sum + (variant.totalStock !== undefined ? variant.totalStock : (variant.stock || 0));
+  }, 0);
   
   // Get all available colors
   const availableColors = [...new Set(cleanVariants.map(v => v.color))];
   
   // Get all available sizes (unique)
-  const availableSizes = [...new Set(cleanVariants.flatMap(v => v.sizes || []))];
+  const availableSizes = [...new Set(cleanVariants.flatMap(v => {
+    // For new structure, extract sizes from sizeStocks
+    if (v.sizeStocks && Array.isArray(v.sizeStocks)) {
+      return v.sizeStocks.map(ss => ss.size);
+    }
+    // For legacy structure, use sizes array
+    return v.sizes || [];
+  }))];
   
   // Get primary image (first image from first variant)
   const primaryImage = cleanVariants.length > 0 && cleanVariants[0].images.length > 0 
