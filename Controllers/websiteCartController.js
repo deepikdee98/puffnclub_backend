@@ -65,6 +65,7 @@ const addToCart = async (req, res) => {
         size,
         color,
         price: product.price,
+        
       };
       console.log('Adding new item to cart:', newItem);
       cart.items.push(newItem);

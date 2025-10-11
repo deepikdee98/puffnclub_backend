@@ -2,6 +2,11 @@ const Customer = require("../Models/customer");
 const Otp = require("../Models/otp");
 const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../Utils/gmailSender");
+const {
+  sendOtpSMS,
+  formatPhoneNumber,
+  validateIndianPhoneNumber,
+} = require("../Utils/twilioService");
 
 // In-memory OTP storage (in production, use Redis or database)
 const otpStorage = new Map();
@@ -41,56 +46,103 @@ const generateRefreshToken = (id) =>
 // @access  Public
 const sendOtp = async (req, res) => {
   try {
-    const { email } = req.body;
-    console.log("Sending OTP to:", email);
+    const { email, mobile } = req.body;
+    console.log("Sending OTP to:", email || mobile);
 
-    // Only allow email
-    if (!email) {
+    // Check if either email or mobile is provided
+    if (!email && !mobile) {
       return res.status(400).json({
         success: false,
-        message: "Email is required",
+        message: "Email or mobile number is required",
       });
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please enter a valid email address",
-      });
+    let identifier, identifierType;
+
+    // Handle mobile number
+    if (mobile) {
+      // Validate Indian phone number
+      if (!validateIndianPhoneNumber(mobile)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid 10-digit mobile number",
+        });
+      }
+
+      identifier = mobile;
+      identifierType = "mobile";
+    }
+    // Handle email
+    else if (email) {
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid email address",
+        });
+      }
+
+      identifier = email;
+      identifierType = "email";
     }
 
     // Generate OTP and session ID
     const otp = generateOTP();
     const sessionId = generateSessionId();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-    console.log(`Generated OTP for ${email}: ${otp}`);
+    console.log(`Generated OTP for ${identifier}: ${otp}`);
 
     // Store OTP in DB
     await Otp.create({
       sessionId,
-      identifier: email,
-      identifierType: "email",
+      identifier,
+      identifierType,
       otp,
       expiresAt,
       attempts: 0,
       maxAttempts: 3,
     });
 
-    console.log("Sending OTP to:", email, "OTP:", otp); // Add this line
+    // Send OTP based on type
+    if (identifierType === "mobile") {
+      // Format phone number with country code
+      const formattedPhone = formatPhoneNumber(mobile);
+      
+      // Send OTP via SMS
+      await sendOtpSMS(formattedPhone, otp);
+      
+      console.log(`OTP sent to mobile: ${mobile}, OTP: ${otp}`);
+      
+      res.status(200).json({
+        success: true,
+        message: `OTP sent to +91 ${mobile}`,
+        sessionId,
+        expiresIn: 300, // 5 minutes in seconds
+      });
+    } else {
+      // Send OTP via Email
+      await sendEmail({
+        to: email,
+        subject: "Your OTP Code",
+        text: `Your OTP code is ${otp}. It is valid for 5 minutes. Do not share this code with anyone.`,
+      });
 
-    // Send OTP via Gmail API (no SMTP)
-    await sendEmail({
-      to: email,
-      subject: "Your OTP Code",
-      text: `Your OTP code is ${otp}. It is valid for 5 minutes.`,
-    });
+      console.log(`OTP sent to email: ${email}, OTP: ${otp}`);
 
-    res.status(200).json({ message: "OTP sent", sessionId });
+      res.status(200).json({
+        success: true,
+        message: `OTP sent to ${email}`,
+        sessionId,
+        expiresIn: 300,
+      });
+    }
   } catch (error) {
     console.error("Send OTP error:", error);
-    res.status(500).json({ message: "Failed to send OTP" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+    });
   }
 };
 
@@ -261,6 +313,12 @@ const resendOtp = async (req, res) => {
 
     // Send OTP
     if (otpData.identifierType === "mobile") {
+      // Format phone number with country code
+      const formattedPhone = formatPhoneNumber(mobile);
+      
+      // Send OTP via SMS
+      await sendOtpSMS(formattedPhone, otp);
+      
       console.log(`Resent OTP for ${mobile}: ${otp} (Session: ${newSessionId})`);
       res.json({
         success: true,
@@ -272,7 +330,7 @@ const resendOtp = async (req, res) => {
       await sendEmail({
         to: email,
         subject: "Your OTP Code",
-        text: `Your OTP code is ${otp}. It is valid for 5 minutes.`,
+        text: `Your OTP code is ${otp}. It is valid for 5 minutes. Do not share this code with anyone.`,
       });
       console.log(`Resent OTP for ${email}: ${otp} (Session: ${newSessionId})`);
       res.json({

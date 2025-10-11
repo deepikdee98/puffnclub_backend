@@ -44,6 +44,7 @@ app.use("/api/admin/dashboard", require("./Routes/adminDashboardRoute"));
 app.use("/api/notifications", require("./Routes/notificationRoute"));
 app.use("/api/messages", require("./Routes/messageRoute"));
 app.use("/api/banners", require("./Routes/bannerRoute"));
+app.use("/api/coupons", require("./Routes/couponRoute"));
 
 // Website routes
 app.use("/api/website", require("./Routes/websiteRoute"));

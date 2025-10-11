@@ -10,8 +10,9 @@ const customerSchema = mongoose.Schema(
     },
     lastName: {
       type: String,
-      required: [true, "Last name is required"],
+      required: false, // Made optional to support OTP login
       trim: true,
+      default: "",
     },
     email: {
       type: String,
@@ -28,6 +29,8 @@ const customerSchema = mongoose.Schema(
     phone: {
       type: String,
       trim: true,
+      sparse: true, // Allows multiple null values but unique non-null values
+      unique: true,
     },
     dateOfBirth: {
       type: Date,
@@ -99,7 +102,7 @@ customerSchema.methods.matchPassword = async function (enteredPassword) {
 
 // Get full name
 customerSchema.virtual("fullName").get(function () {
-  return `${this.firstName} ${this.lastName}`;
+  return this.lastName ? `${this.firstName} ${this.lastName}` : this.firstName;
 });
 
 // Ensure virtual fields are serialized
