@@ -1,88 +1,84 @@
-const twilio = require('twilio');
+/**
+ * SMS/OTP Service using 2Factor.in API
+ * This service handles OTP sending via SMS using 2Factor.in
+ * Documentation: https://2factor.in/
+ */
 
-// Initialize Twilio client
-let twilioClient = null;
+const axios = require('axios');
 
-const initializeTwilio = () => {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  
-  if (!accountSid || !authToken) {
-    console.warn('Twilio credentials not configured. SMS sending will be disabled.');
-    return null;
-  }
-  
-  try {
-    twilioClient = twilio(accountSid, authToken);
-    console.log('Twilio client initialized successfully');
-    return twilioClient;
-  } catch (error) {
-    console.error('Failed to initialize Twilio client:', error.message);
-    return null;
-  }
+/**
+ * Format phone number for 2Factor.in API (removes + and keeps only digits)
+ * 2Factor.in expects phone number in format: 919876543210 (country code + number, no +)
+ * @param {string} phoneNumber - Phone number with country code (e.g., +919876543210)
+ * @returns {string} - Formatted phone number (e.g., 919876543210)
+ */
+const formatPhoneFor2Factor = (phoneNumber) => {
+  // Remove all non-digit characters
+  return phoneNumber.replace(/\D/g, '');
 };
 
 /**
- * Send SMS using Twilio
- * @param {string} to - Phone number with country code (e.g., +919876543210)
- * @param {string} message - Message to send
- * @returns {Promise<object>} - Twilio response
+ * Send OTP via SMS using 2Factor.in API
+ * @param {string} phoneNumber - Phone number with country code (e.g., +919876543210)
+ * @param {string} otp - OTP code to send
+ * @returns {Promise<object>} - Response object
  */
-const sendSMS = async (to, message) => {
+const sendOtpSMS = async (phoneNumber, otp) => {
   try {
-    // Initialize client if not already done
-    if (!twilioClient) {
-      twilioClient = initializeTwilio();
-    }
+    const apiKey = process.env.TWOFACTOR_API_KEY;
     
-    // If Twilio is not configured, log to console (for development)
-    if (!twilioClient) {
+    if (!apiKey) {
+      console.warn('⚠️  TWOFACTOR_API_KEY not configured. SMS will be logged to console.');
       console.log('='.repeat(50));
-      console.log('SMS WOULD BE SENT (Twilio not configured):');
-      console.log(`To: ${to}`);
-      console.log(`Message: ${message}`);
+      console.log('📱 SMS WOULD BE SENT (2Factor.in not configured):');
+      console.log(`To: ${phoneNumber}`);
+      console.log(`OTP: ${otp}`);
       console.log('='.repeat(50));
+      
       return {
         success: true,
-        message: 'SMS logged to console (Twilio not configured)',
+        message: 'SMS logged to console (2Factor.in not configured)',
         sid: 'dev-mode-' + Date.now(),
       };
     }
+
+    // Format phone number for 2Factor.in (remove + and keep only digits)
+    // 2Factor.in expects: 919876543210 (country code + number, no +)
+    const formattedPhone = formatPhoneFor2Factor(phoneNumber);
     
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+    // 2Factor.in API endpoint for sending custom OTP
+    // Format: https://2factor.in/API/V1/{API_KEY}/SMS/{PHONE}/{OTP}
+    // This sends the OTP directly in the SMS message
+    const apiUrl = `https://2factor.in/API/V1/${apiKey}/SMS/${formattedPhone}/${otp}`;
     
-    if (!fromNumber) {
-      throw new Error('TWILIO_PHONE_NUMBER not configured');
+    console.log(`Sending OTP via 2Factor.in to ${formattedPhone}...`);
+    
+    const response = await axios.get(apiUrl);
+    
+    if (response.data && response.data.Status === 'Success') {
+      console.log(`✅ OTP sent successfully via 2Factor.in to ${formattedPhone}`);
+      return {
+        success: true,
+        message: 'OTP sent successfully',
+        sid: response.data.Details || '2factor-' + Date.now(),
+        status: response.data.Status,
+      };
+    } else {
+      console.error('❌ 2Factor.in API error:', response.data);
+      throw new Error(response.data.Details || 'Failed to send OTP via 2Factor.in');
     }
-    
-    // Send SMS via Twilio
-    const result = await twilioClient.messages.create({
-      body: message,
-      from: fromNumber,
-      to: to,
-    });
-    
-    console.log(`SMS sent successfully to ${to}. SID: ${result.sid}`);
-    
-    return {
-      success: true,
-      message: 'SMS sent successfully',
-      sid: result.sid,
-      status: result.status,
-    };
   } catch (error) {
-    console.error('Failed to send SMS:', error.message);
+    console.error('❌ Failed to send OTP via 2Factor.in:', error.message);
     
     // In development, log OTP to console instead of failing
     if (process.env.NODE_ENV === 'development') {
       console.log('='.repeat(50));
       console.log('⚠️  SMS FAILED - DEVELOPMENT MODE');
-      console.log(`📱 To: ${to}`);
-      console.log(`📨 Message: ${message}`);
+      console.log(`📱 To: ${phoneNumber}`);
+      console.log(`🔑 OTP: ${otp}`);
       console.log('💡 OTP is logged above for testing');
       console.log('='.repeat(50));
       
-      // Return success in development mode
       return {
         success: true,
         message: 'SMS logged to console (development mode)',
@@ -91,19 +87,35 @@ const sendSMS = async (to, message) => {
       };
     }
     
-    throw new Error(`Failed to send SMS: ${error.message}`);
+    throw new Error(`Failed to send OTP via 2Factor.in: ${error.message}`);
   }
 };
 
 /**
- * Send OTP via SMS
- * @param {string} phoneNumber - Phone number with country code
- * @param {string} otp - OTP code
- * @returns {Promise<object>}
+ * Send SMS (generic function - currently uses sendOtpSMS)
+ * @param {string} to - Phone number with country code (e.g., +919876543210)
+ * @param {string} message - Message to send
+ * @returns {Promise<object>} - Response object
  */
-const sendOtpSMS = async (phoneNumber, otp) => {
-  const message = `Your OTP code is ${otp}. It is valid for 5 minutes. Do not share this code with anyone.`;
-  return await sendSMS(phoneNumber, message);
+const sendSMS = async (to, message) => {
+  // Extract OTP from message if it's an OTP message
+  const otpMatch = message.match(/(\d{6})/);
+  if (otpMatch) {
+    return await sendOtpSMS(to, otpMatch[1]);
+  }
+  
+  // For non-OTP messages, log to console
+  console.log('='.repeat(50));
+  console.log('📱 SMS WOULD BE SENT:');
+  console.log(`To: ${to}`);
+  console.log(`Message: ${message}`);
+  console.log('='.repeat(50));
+  
+  return {
+    success: true,
+    message: 'SMS logged to console',
+    sid: 'dev-mode-' + Date.now(),
+  };
 };
 
 /**
@@ -141,7 +153,6 @@ const validateIndianPhoneNumber = (phoneNumber) => {
 };
 
 module.exports = {
-  initializeTwilio,
   sendSMS,
   sendOtpSMS,
   formatPhoneNumber,
