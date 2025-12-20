@@ -232,6 +232,133 @@ class ShiprocketService {
     // For now, return true
     return true;
   }
+
+  // =======================================
+  // SHIPROCKET CHECKOUT API METHODS
+  // =======================================
+
+  /**
+   * Send product update webhook to Shiprocket
+   * Called when product is created/updated in your system
+   */
+  async sendProductWebhook(product) {
+    try {
+      const checkoutApiUrl = process.env.SHIPROCKET_CHECKOUT_API_URL || 'https://checkout-api.shiprocket.com';
+      const apiKey = process.env.SHIPROCKET_CHECKOUT_API_KEY;
+      const secretKey = process.env.SHIPROCKET_CHECKOUT_SECRET_KEY;
+
+      if (!apiKey || !secretKey) {
+        console.warn('Shiprocket Checkout credentials not configured');
+        return { success: false, message: 'Credentials not configured' };
+      }
+
+      const payload = this.formatProductWebhookPayload(product);
+      const hmac = this.calculateHMAC(JSON.stringify(payload), secretKey);
+
+      const response = await axios.post(
+        `${checkoutApiUrl}/wh/v1/custom/product`,
+        payload,
+        {
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Api-HMAC-SHA256': hmac,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Product webhook sent to Shiprocket:', response.status);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Send product webhook error:', error.response?.data || error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send collection update webhook to Shiprocket
+   */
+  async sendCollectionWebhook(collection) {
+    try {
+      const checkoutApiUrl = process.env.SHIPROCKET_CHECKOUT_API_URL || 'https://checkout-api.shiprocket.com';
+      const apiKey = process.env.SHIPROCKET_CHECKOUT_API_KEY;
+      const secretKey = process.env.SHIPROCKET_CHECKOUT_SECRET_KEY;
+
+      if (!apiKey || !secretKey) {
+        console.warn('Shiprocket Checkout credentials not configured');
+        return { success: false, message: 'Credentials not configured' };
+      }
+
+      const payload = {
+        id: collection._id ? collection._id.toString() : collection.id,
+        updated_at: new Date(collection.updatedAt || Date.now()).toISOString(),
+        title: collection.name || collection.title,
+        body_html: collection.description || '',
+        image: {
+          src: collection.image || ''
+        }
+      };
+
+      const hmac = this.calculateHMAC(JSON.stringify(payload), secretKey);
+
+      const response = await axios.post(
+        `${checkoutApiUrl}/wh/v1/custom/collection`,
+        payload,
+        {
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Api-HMAC-SHA256': hmac,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Collection webhook sent to Shiprocket:', response.status);
+      return { success: true, data: response.data };
+    } catch (error) {
+      console.error('Send collection webhook error:', error.response?.data || error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Helper method to calculate HMAC
+  calculateHMAC(payload, secretKey) {
+    const crypto = require('crypto');
+    return crypto
+      .createHmac('sha256', secretKey)
+      .update(payload)
+      .digest('base64');
+  }
+
+  // Helper method to format product for webhook
+  formatProductWebhookPayload(product) {
+    const productObj = product.toObject ? product.toObject() : product;
+    
+    return {
+      id: productObj._id ? productObj._id.toString() : productObj.id,
+      title: productObj.name,
+      body_html: productObj.description || '',
+      vendor: productObj.brand || '',
+      product_type: productObj.category || '',
+      updated_at: new Date(productObj.updatedAt).toISOString(),
+      status: productObj.status || 'active',
+      variants: (productObj.variants || []).map((variant, index) => ({
+        id: variant._id ? variant._id.toString() : `${productObj._id}-${index}`,
+        title: variant.color || `Variant ${index + 1}`,
+        price: productObj.price.toString(),
+        quantity: variant.totalStock || 0,
+        sku: `${productObj.sku}-${variant.color}`,
+        updated_at: new Date(productObj.updatedAt).toISOString(),
+        image: {
+          src: variant.images?.[0] || ''
+        },
+        weight: 0.5
+      })),
+      image: {
+        src: productObj.variants?.[0]?.images?.[0] || ''
+      }
+    };
+  }
 }
 
 module.exports = new ShiprocketService();

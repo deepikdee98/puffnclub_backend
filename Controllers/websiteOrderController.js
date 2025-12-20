@@ -223,6 +223,61 @@ const getCustomerOrderById = async (req, res) => {
   }
 };
 
+// @desc    Get order tracking information
+// @route   GET /api/website/orders/:orderId/tracking
+// @access  Private
+const getOrderTracking = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const customerId = req.customer.id;
+
+    const order = await CustomerOrder.findOne({
+      _id: orderId,
+      customer: customerId
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (!order.shipmentId) {
+      return res.json({
+        success: true,
+        tracking: {
+          status: order.orderStatus,
+          message: 'Order is being processed',
+          trackingNumber: order.trackingNumber || null,
+          estimatedDelivery: order.estimatedDelivery || null
+        }
+      });
+    }
+
+    // Get tracking information from Shiprocket
+    const trackingData = await shiprocketService.trackOrder(order.shipmentId);
+
+    res.json({
+      success: true,
+      tracking: {
+        status: order.currentStatus || order.orderStatus,
+        awbCode: order.awbCode,
+        courierName: order.courierName,
+        trackingUrl: order.trackingUrl,
+        currentLocation: trackingData.tracking_data?.track_detail?.[0]?.location || null,
+        estimatedDelivery: order.expectedDeliveryDate || order.estimatedDelivery,
+        trackingHistory: trackingData.tracking_data?.track_detail || [],
+        shipmentDetails: trackingData.tracking_data || {},
+        trackingNumber: order.trackingNumber || order.awbCode
+      }
+    });
+  } catch (error) {
+    console.error('Get order tracking error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get tracking information',
+      details: error.message 
+    });
+  }
+};
+
 // @desc    Cancel customer order
 // @route   PUT /api/website/orders/:orderId/cancel
 // @access  Private
@@ -292,5 +347,6 @@ module.exports = {
   createCustomerOrder,
   getCustomerOrders,
   getCustomerOrderById,
+  getOrderTracking,
   cancelOrder,
 };

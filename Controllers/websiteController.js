@@ -18,6 +18,8 @@ const getPublicProducts = async (req, res) => {
       sortBy = "createdAt",
       sortOrder = "desc",
       search,
+      sizes,
+      colors,
     } = req.query;
 
     // Build filter object - case insensitive status filter
@@ -45,7 +47,9 @@ const getPublicProducts = async (req, res) => {
     const sort = {};
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
 
-    // Calculate pagination
+    // For size and color filtering, we need to filter after transformation
+    // So we fetch more products initially to account for filtering
+    const fetchLimit = (sizes || colors) ? parseInt(limit) * 10 : parseInt(limit);
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Get products
@@ -53,10 +57,10 @@ const getPublicProducts = async (req, res) => {
       .select("-__v")
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(fetchLimit);
 
     // Transform products data
-    const products = productsRaw.map(product => {
+    let products = productsRaw.map(product => {
       const transformed = transformProductData(product);
       // For listing, return a simplified version
       return {
@@ -81,8 +85,33 @@ const getPublicProducts = async (req, res) => {
       };
     });
 
-    // Get total count for pagination
-    const totalProducts = await Product.countDocuments(filter);
+    // Filter by sizes if provided
+    if (sizes) {
+      const sizeArray = Array.isArray(sizes) ? sizes : sizes.split(',').map(s => s.trim());
+      products = products.filter(product => {
+        const productSizes = product.availableSizes || [];
+        return sizeArray.some(size => 
+          productSizes.some(ps => ps.toLowerCase() === size.toLowerCase())
+        );
+      });
+    }
+
+    // Filter by colors if provided
+    if (colors) {
+      const colorArray = Array.isArray(colors) ? colors : colors.split(',').map(c => c.trim());
+      products = products.filter(product => {
+        const productColors = product.availableColors || [];
+        return colorArray.some(color => 
+          productColors.some(pc => pc.toLowerCase() === color.toLowerCase())
+        );
+      });
+    }
+
+    // Apply pagination limit after filtering
+    products = products.slice(0, parseInt(limit));
+
+    // Get total count for pagination (approximate when filtering by size/color)
+    const totalProducts = (sizes || colors) ? products.length : await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
     res.json({
@@ -116,9 +145,15 @@ const getFeaturedProducts = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
 
+    console.log(`🔍 Found ${productsRaw.length} featured products`);
+    productsRaw.forEach(p => {
+      console.log(`  - ${p.name} (${p.sku}): images=${p.images?.length || 0}, sizes=${p.availableSizes?.length || 0}, variants=${p.variants?.length || 0}`);
+    });
+
     // Transform products data
     const products = productsRaw.map(product => {
       const transformed = transformProductData(product);
+      console.log(`  ✅ Transformed ${transformed.name}: primaryImage=${transformed.primaryImage ? 'YES' : 'NO'}, variants=${transformed.variants.length}`);
       // For featured products, return a simplified version
       return {
         _id: transformed._id,
@@ -131,7 +166,9 @@ const getFeaturedProducts = async (req, res) => {
         variants: transformed.variants,
         totalStock: transformed.totalStock,
         availableColors: transformed.availableColors,
+        availableSizes: transformed.availableSizes,
         primaryImage: transformed.primaryImage,
+        images: transformed.allImages,
         isFeatured: transformed.isFeatured
       };
     });
@@ -149,26 +186,43 @@ const getFeaturedProducts = async (req, res) => {
 const getProductsByCategory = async (req, res) => {
   try {
     const { category } = req.params;
-    const { page = 1, limit = 12, sortBy = "createdAt", sortOrder = "desc" } = req.query;
+    const { 
+      page = 1, 
+      limit = 12, 
+      sortBy = "createdAt", 
+      sortOrder = "desc",
+      minPrice,
+      maxPrice,
+      sizes,
+      colors,
+    } = req.query;
 
     const filter = {
       status: { $regex: '^active$', $options: 'i' },
       category: { $regex: category, $options: "i" },
     };
 
+    if (minPrice || maxPrice) {
+      filter.price = {};
+      if (minPrice) filter.price.$gte = parseFloat(minPrice);
+      if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+    }
+
     const sort = {};
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
 
+    // For size and color filtering, fetch more products initially
+    const fetchLimit = (sizes || colors) ? parseInt(limit) * 10 : parseInt(limit);
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const productsRaw = await Product.find(filter)
       .select("-__v")
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(fetchLimit);
 
     // Transform products data
-    const products = productsRaw.map(product => {
+    let products = productsRaw.map(product => {
       const transformed = transformProductData(product);
       // For category listing, return a simplified version
       return {
@@ -189,7 +243,32 @@ const getProductsByCategory = async (req, res) => {
       };
     });
 
-    const totalProducts = await Product.countDocuments(filter);
+    // Filter by sizes if provided
+    if (sizes) {
+      const sizeArray = Array.isArray(sizes) ? sizes : sizes.split(',').map(s => s.trim());
+      products = products.filter(product => {
+        const productSizes = product.availableSizes || [];
+        return sizeArray.some(size => 
+          productSizes.some(ps => ps.toLowerCase() === size.toLowerCase())
+        );
+      });
+    }
+
+    // Filter by colors if provided
+    if (colors) {
+      const colorArray = Array.isArray(colors) ? colors : colors.split(',').map(c => c.trim());
+      products = products.filter(product => {
+        const productColors = product.availableColors || [];
+        return colorArray.some(color => 
+          productColors.some(pc => pc.toLowerCase() === color.toLowerCase())
+        );
+      });
+    }
+
+    // Apply pagination limit after filtering
+    products = products.slice(0, parseInt(limit));
+
+    const totalProducts = (sizes || colors) ? products.length : await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
     res.json({

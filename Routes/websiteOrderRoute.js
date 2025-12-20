@@ -3,6 +3,7 @@ const {
   createCustomerOrder,
   getCustomerOrders,
   getCustomerOrderById,
+  getOrderTracking,
   cancelOrder,
 } = require("../Controllers/websiteOrderController");
 const { customerValidation } = require("../Middleware/websiteAuthMiddleware");
@@ -15,6 +16,7 @@ router.use(customerValidation);
 router.post("/", createCustomerOrder);
 router.get("/", getCustomerOrders);
 router.get("/:orderId", getCustomerOrderById);
+router.get("/:orderId/tracking", getOrderTracking);
 router.put("/:orderId/cancel", cancelOrder);
 
 module.exports = router;
