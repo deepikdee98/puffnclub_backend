@@ -32,6 +32,8 @@ const createProduct = asyncHandler(async (req, res) => {
       tags,
       metaTitle,
       metaDescription,
+      sizeChartUnit,
+      sizeChartMeasurements,
     } = req.body;
 
     // Check basic required fields
@@ -132,6 +134,16 @@ const createProduct = asyncHandler(async (req, res) => {
     }
     console.log("=== END PARSING VARIANTS ===");
 
+    // Process size chart image
+    let sizeChartImageUrl = null;
+    if (req.files && req.files.length > 0) {
+      const sizeChartFile = req.files.find(file => file.fieldname === "sizeChartImage");
+      if (sizeChartFile) {
+        sizeChartImageUrl = sizeChartFile.secure_url || sizeChartFile.path;
+        console.log("Size chart image uploaded:", sizeChartImageUrl);
+      }
+    }
+
     // Process variant images from uploaded files
     console.log("=== PROCESSING VARIANT IMAGES ===");
     if (req.files && req.files.length > 0) {
@@ -143,6 +155,11 @@ const createProduct = asyncHandler(async (req, res) => {
           path: file.path,
           secure_url: file.secure_url
         });
+        
+        // Skip size chart image as it's already processed
+        if (file.fieldname === "sizeChartImage") {
+          return;
+        }
         
         const variantMatch = file.fieldname.match(/^variants\[(\d+)\]\[images\]$/);
         if (variantMatch) {
@@ -246,6 +263,28 @@ const createProduct = asyncHandler(async (req, res) => {
         processedTags = tags.split(",").map(s => s.trim()).filter(Boolean);
       }
     }
+
+    // Parse size chart measurements
+    let processedSizeChartMeasurements = [];
+    if (sizeChartMeasurements) {
+      try {
+        if (typeof sizeChartMeasurements === 'string') {
+          processedSizeChartMeasurements = JSON.parse(sizeChartMeasurements);
+        } else if (Array.isArray(sizeChartMeasurements)) {
+          processedSizeChartMeasurements = sizeChartMeasurements;
+        }
+        // Validate measurements structure
+        processedSizeChartMeasurements = processedSizeChartMeasurements.map(m => ({
+          size: String(m.size || ""),
+          length: Number(m.length) || 0,
+          chest: Number(m.chest) || 0,
+          sleeve: Number(m.sleeve) || 0,
+        })).filter(m => m.size); // Remove empty entries
+      } catch (e) {
+        console.warn("Failed to parse sizeChartMeasurements:", e);
+        processedSizeChartMeasurements = [];
+      }
+    }
     
     // Create the product with variant structure
     const newProduct = new Product({
@@ -262,6 +301,9 @@ const createProduct = asyncHandler(async (req, res) => {
       variants: variants,
       metaTitle: metaTitle || undefined,
       metaDescription: metaDescription || undefined,
+      sizeChartImage: sizeChartImageUrl || undefined,
+      sizeChartMeasurements: processedSizeChartMeasurements.length > 0 ? processedSizeChartMeasurements : undefined,
+      sizeChartUnit: sizeChartUnit && ["inches", "cm"].includes(sizeChartUnit) ? sizeChartUnit : undefined,
     });
 
     console.log("Product to save:", JSON.stringify(newProduct, null, 2));
@@ -328,6 +370,42 @@ const updateProductById = asyncHandler(async (req, res) => {
 
     // Simple update - just update the fields that are provided
     const updateData = {};
+
+    // Process size chart image if uploaded
+    if (req.files && req.files.length > 0) {
+      const sizeChartFile = req.files.find(file => file.fieldname === "sizeChartImage");
+      if (sizeChartFile) {
+        updateData.sizeChartImage = sizeChartFile.secure_url || sizeChartFile.path;
+        console.log("Size chart image updated:", updateData.sizeChartImage);
+      }
+    }
+
+    // Parse size chart measurements if provided
+    if (req.body.sizeChartMeasurements) {
+      try {
+        let measurements = [];
+        if (typeof req.body.sizeChartMeasurements === 'string') {
+          measurements = JSON.parse(req.body.sizeChartMeasurements);
+        } else if (Array.isArray(req.body.sizeChartMeasurements)) {
+          measurements = req.body.sizeChartMeasurements;
+        }
+        // Validate and process measurements
+        updateData.sizeChartMeasurements = measurements.map(m => ({
+          size: String(m.size || ""),
+          length: Number(m.length) || 0,
+          chest: Number(m.chest) || 0,
+          sleeve: Number(m.sleeve) || 0,
+        })).filter(m => m.size); // Remove empty entries
+        console.log("Size chart measurements updated:", updateData.sizeChartMeasurements);
+      } catch (e) {
+        console.warn("Failed to parse sizeChartMeasurements:", e);
+      }
+    }
+
+    // Handle size chart unit
+    if (req.body.sizeChartUnit && ["inches", "cm"].includes(req.body.sizeChartUnit)) {
+      updateData.sizeChartUnit = req.body.sizeChartUnit;
+    }
 
     // Basic string fields
     const stringFields = [
@@ -502,6 +580,11 @@ const updateProductById = asyncHandler(async (req, res) => {
       // Process variant images from uploaded files
       if (req.files && req.files.length > 0) {
         req.files.forEach(file => {
+          // Skip size chart image as it's already processed
+          if (file.fieldname === "sizeChartImage") {
+            return;
+          }
+          
           const variantMatch = file.fieldname.match(/^variants\[(\d+)\]\[images\]$/);
           if (variantMatch) {
             const variantIndex = parseInt(variantMatch[1]);

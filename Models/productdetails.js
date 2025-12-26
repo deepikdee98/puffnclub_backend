@@ -121,6 +121,34 @@ const productDetailsSchema = new mongoose.Schema({
     type: String,
   },
   
+  // Size chart fields
+  sizeChartImage: {
+    type: String,
+  },
+  sizeChartMeasurements: [{
+    size: {
+      type: String,
+      required: true,
+    },
+    length: {
+      type: Number,
+      required: true,
+    },
+    chest: {
+      type: Number,
+      required: true,
+    },
+    sleeve: {
+      type: Number,
+      required: true,
+    }
+  }],
+  sizeChartUnit: {
+    type: String,
+    enum: ["inches", "cm"],
+    default: "inches",
+  },
+  
   // Legacy fields for backward compatibility (optional)
   color: {
     type: String,

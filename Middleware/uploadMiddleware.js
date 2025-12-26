@@ -138,6 +138,42 @@ const debugUpload = {
         next();
       });
     };
+  },
+  
+  fields: (fields) => {
+    return (req, res, next) => {
+      console.log('=== FIELDS UPLOAD DEBUG ===');
+      console.log('Storage type:', process.env.STORAGE_TYPE);
+      console.log('Fields:', fields);
+      
+      const uploadHandler = upload.fields(fields);
+      
+      uploadHandler(req, res, (err) => {
+        if (err) {
+          console.error('Upload error:', err);
+          return res.status(400).json({ error: err.message });
+        }
+        
+        console.log('Files uploaded:', req.files ? Object.keys(req.files).length : 0);
+        if (req.files) {
+          Object.keys(req.files).forEach(fieldname => {
+            req.files[fieldname].forEach((file, index) => {
+              console.log(`File ${fieldname}[${index}]:`, {
+                fieldname: file.fieldname,
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size,
+                path: file.path,
+                secure_url: file.secure_url,
+                public_id: file.public_id
+              });
+            });
+          });
+        }
+        
+        next();
+      });
+    };
   }
 };
 

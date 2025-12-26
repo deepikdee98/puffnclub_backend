@@ -512,12 +512,16 @@ const getPublicProductById = async (req, res) => {
 // @desc    Get active banners for website
 // @route   GET /api/website/banners
 // @access  Public
+// @returns { banners: Array } - Returns active banners with both image (desktop) and imageMobile (mobile) fields
 const getPublicBanners = async (req, res) => {
   try {
     const banners = await Banner.find({ isActive: true })
       .select("-__v -createdBy -updatedBy")
       .sort({ order: 1 });
 
+    // Returns banners with both image (desktop) and imageMobile (mobile) fields
+    // The select statement excludes only __v, createdBy, and updatedBy
+    // All other fields including image and imageMobile are automatically included
     res.json({ banners });
   } catch (error) {
     console.error("Get public banners error:", error);

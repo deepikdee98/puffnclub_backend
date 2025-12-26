@@ -47,7 +47,11 @@ const bannerSchema = new mongoose.Schema(
     },
     image: {
       type: String,
-      required: [true, "Banner image is required"],
+      required: [true, "Banner image (desktop) is required"],
+    },
+    imageMobile: {
+      type: String,
+      required: [true, "Banner image (mobile) is required"],
     },
     isActive: {
       type: Boolean,

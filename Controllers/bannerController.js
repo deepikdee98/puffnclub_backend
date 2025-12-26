@@ -90,11 +90,22 @@ const createBanner = asyncHandler(async (req, res) => {
     const { title, subtitle, buttonText, buttonLink, targetUrl, isActive } =
       req.body;
 
-    // Check if image was uploaded
-    if (!req.file) {
+    // Check if images were uploaded
+    const files = req.files || {};
+    const desktopImage = files.image && files.image[0];
+    const mobileImage = files.imageMobile && files.imageMobile[0];
+    
+    if (!desktopImage) {
       return res.status(400).json({
         success: false,
-        message: "Banner image is required",
+        message: "Desktop banner image is required",
+      });
+    }
+    
+    if (!mobileImage) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile banner image is required",
       });
     }
 
@@ -121,7 +132,8 @@ const createBanner = asyncHandler(async (req, res) => {
       buttonText: buttonText?.trim() || "",
       buttonLink: buttonLink?.trim() || "",
       targetUrl: targetUrl?.trim() || "",
-      image: req.file.path,
+      image: desktopImage.path || desktopImage.secure_url,
+      imageMobile: mobileImage.path || mobileImage.secure_url,
       isActive: isActive === "true" || isActive === true,
       createdBy: req.admin.userId,
     };
@@ -140,9 +152,14 @@ const createBanner = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error("Create banner error:", error);
 
-    // Clean up uploaded file if banner creation failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Clean up uploaded files if banner creation failed
+    if (req.files) {
+      const allFiles = [...(req.files.image || []), ...(req.files.imageMobile || [])];
+      allFiles.forEach(file => {
+        if (file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
     }
 
     if (error.name === "ValidationError") {
@@ -209,13 +226,25 @@ const updateBanner = asyncHandler(async (req, res) => {
       updatedBy: req.admin.userId,
     };
 
-    // Handle image update
-    if (req.file) {
-      // Delete old image file
+    // Handle image updates
+    const files = req.files || {};
+    const desktopImage = files.image && files.image[0];
+    const mobileImage = files.imageMobile && files.imageMobile[0];
+    
+    if (desktopImage) {
+      // Delete old desktop image file
       if (existingBanner.image && fs.existsSync(existingBanner.image)) {
         fs.unlinkSync(existingBanner.image);
       }
-      updateData.image = req.file.path;
+      updateData.image = desktopImage.path || desktopImage.secure_url;
+    }
+    
+    if (mobileImage) {
+      // Delete old mobile image file
+      if (existingBanner.imageMobile && fs.existsSync(existingBanner.imageMobile)) {
+        fs.unlinkSync(existingBanner.imageMobile);
+      }
+      updateData.imageMobile = mobileImage.path || mobileImage.secure_url;
     }
 
     // Update banner
@@ -234,9 +263,14 @@ const updateBanner = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error("Update banner error:", error);
 
-    // Clean up uploaded file if banner update failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Clean up uploaded files if banner update failed
+    if (req.files) {
+      const allFiles = [...(req.files.image || []), ...(req.files.imageMobile || [])];
+      allFiles.forEach(file => {
+        if (file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
     }
 
     if (error.name === "ValidationError") {
@@ -269,9 +303,12 @@ const deleteBanner = asyncHandler(async (req, res) => {
       });
     }
 
-    // Delete image file
+    // Delete image files
     if (banner.image && fs.existsSync(banner.image)) {
       fs.unlinkSync(banner.image);
+    }
+    if (banner.imageMobile && fs.existsSync(banner.imageMobile)) {
+      fs.unlinkSync(banner.imageMobile);
     }
 
     // Delete banner

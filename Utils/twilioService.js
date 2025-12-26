@@ -41,7 +41,7 @@ const sendOtpSMS = async (phoneNumber, otp) => {
         sid: 'dev-mode-' + Date.now(),
       };
     }
-
+    
     // Format phone number for 2Factor.in (remove + and keep only digits)
     // 2Factor.in expects: 919876543210 (country code + number, no +)
     const formattedPhone = formatPhoneFor2Factor(phoneNumber);
@@ -57,12 +57,12 @@ const sendOtpSMS = async (phoneNumber, otp) => {
     
     if (response.data && response.data.Status === 'Success') {
       console.log(`✅ OTP sent successfully via 2Factor.in to ${formattedPhone}`);
-      return {
-        success: true,
+    return {
+      success: true,
         message: 'OTP sent successfully',
         sid: response.data.Details || '2factor-' + Date.now(),
         status: response.data.Status,
-      };
+    };
     } else {
       console.error('❌ 2Factor.in API error:', response.data);
       throw new Error(response.data.Details || 'Failed to send OTP via 2Factor.in');
