@@ -20,6 +20,7 @@ const getPublicProducts = async (req, res) => {
       search,
       sizes,
       colors,
+      inStock,
     } = req.query;
 
     // Build filter object - case insensitive status filter
@@ -107,11 +108,20 @@ const getPublicProducts = async (req, res) => {
       });
     }
 
+    // Filter by stock availability if provided
+    if (inStock !== undefined && inStock !== null && inStock !== '') {
+      const inStockValue = inStock === 'true' || inStock === true;
+      products = products.filter(product => {
+        const productStock = product.totalStock || 0;
+        return inStockValue ? productStock > 0 : productStock === 0;
+      });
+    }
+
     // Apply pagination limit after filtering
     products = products.slice(0, parseInt(limit));
 
-    // Get total count for pagination (approximate when filtering by size/color)
-    const totalProducts = (sizes || colors) ? products.length : await Product.countDocuments(filter);
+    // Get total count for pagination (approximate when filtering by size/color/stock)
+    const totalProducts = (sizes || colors || inStock) ? products.length : await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
     res.json({
@@ -195,6 +205,7 @@ const getProductsByCategory = async (req, res) => {
       maxPrice,
       sizes,
       colors,
+      inStock,
     } = req.query;
 
     const filter = {
@@ -265,10 +276,19 @@ const getProductsByCategory = async (req, res) => {
       });
     }
 
+    // Filter by stock availability if provided
+    if (inStock !== undefined && inStock !== null && inStock !== '') {
+      const inStockValue = inStock === 'true' || inStock === true;
+      products = products.filter(product => {
+        const productStock = product.totalStock || 0;
+        return inStockValue ? productStock > 0 : productStock === 0;
+      });
+    }
+
     // Apply pagination limit after filtering
     products = products.slice(0, parseInt(limit));
 
-    const totalProducts = (sizes || colors) ? products.length : await Product.countDocuments(filter);
+    const totalProducts = (sizes || colors || inStock) ? products.length : await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
     res.json({
