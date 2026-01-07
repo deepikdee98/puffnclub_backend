@@ -5,34 +5,57 @@ const cors = require("cors");
 const path = require("path");
 
 connectDb();
-const app = express();
 
+const app = express();
 const port = process.env.PORT || 5000;
+
+/* ================================
+   CORS CONFIG (PRODUCTION SAFE)
+================================ */
+const allowedOrigins = [
+  "https://puffnclub.com",
+  "https://www.puffnclub.com",
+];
 
 app.use(
   cors({
-    origin: true, // Allow all origins for development
-    credentials: true,
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+app.options("*", cors());
+
+// ✅ VERY IMPORTANT: handle preflight
+app.options("*", cors());
+
+/* ================================
+   BODY PARSERS
+================================ */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files (uploaded images)
+/* ================================
+   STATIC FILES
+================================ */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Health check endpoint
+/* ================================
+   HEALTH CHECK
+================================ */
 app.get("/api/health", (req, res) => {
-  res.json({ 
-    status: "OK", 
+  res.json({
+    status: "OK",
     timestamp: new Date().toISOString(),
-    port: port,
-    cors: "enabled"
+    port,
+    cors: "enabled",
   });
 });
 
-// Admin routes
+/* ================================
+   ADMIN ROUTES
+================================ */
 app.use("/api/admin", require("./Routes/authRoute"));
 app.use("/api/upload-products", require("./Routes/uploadsRoute"));
 app.use("/api/products", require("./Routes/productRoute"));
@@ -46,7 +69,9 @@ app.use("/api/messages", require("./Routes/messageRoute"));
 app.use("/api/banners", require("./Routes/bannerRoute"));
 app.use("/api/coupons", require("./Routes/couponRoute"));
 
-// Website routes
+/* ================================
+   WEBSITE ROUTES
+================================ */
 app.use("/api/website", require("./Routes/websiteRoute"));
 app.use("/api/website/auth", require("./Routes/websiteAuthRoute"));
 app.use("/api/website/addresses", require("./Routes/websiteAddressRoute"));
@@ -57,9 +82,14 @@ app.use("/api/website", require("./Routes/exchangeReturnRoute"));
 app.use("/api/website", require("./Routes/websiteContactRoute"));
 app.use("/api/website", require("./Routes/shiprocketRoute"));
 
-// Shiprocket Checkout Integration APIs
+/* ================================
+   SHIPROCKET CHECKOUT
+================================ */
 app.use("/api/shiprocket", require("./Routes/shiprocketCheckoutRoute"));
 
+/* ================================
+   SERVER START
+================================ */
 app.listen(port, "0.0.0.0", () => {
-  console.log(`Server listening on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
