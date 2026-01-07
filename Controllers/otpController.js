@@ -4,6 +4,8 @@ const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../Utils/gmailSender");
 const {
   sendOtpSMS,
+  sendOtpWhatsApp,
+  sendOtp: sendOtpViaTwilio, // Smart function that chooses SMS or WhatsApp based on env/config
   formatPhoneNumber,
   validateIndianPhoneNumber,
 } = require("../Utils/twilioService");
@@ -109,16 +111,23 @@ const sendOtp = async (req, res) => {
       // Format phone number with country code
       const formattedPhone = formatPhoneNumber(mobile);
       
-      // Send OTP via SMS
-      await sendOtpSMS(formattedPhone, otp);
+      // Determine OTP channel (WhatsApp or SMS)
+      // Check if WhatsApp is preferred via environment variable or use SMS as default
+      const useWhatsApp = process.env.USE_WHATSAPP_OTP === 'true';
+      const channel = useWhatsApp ? 'whatsapp' : 'sms';
       
-      console.log(`OTP sent to mobile: ${mobile}, OTP: ${otp}`);
+      // Send OTP via preferred channel (with SMS fallback)
+      const result = await sendOtpViaTwilio(formattedPhone, otp, channel);
       
+      console.log(`OTP sent to mobile via ${result.channel || channel}: ${mobile}, OTP: ${otp}`);
+      
+      const channelName = result.channel === 'whatsapp' ? 'WhatsApp' : 'SMS';
       res.status(200).json({
         success: true,
-        message: `OTP sent to +91 ${mobile}`,
+        message: `OTP sent to +91 ${mobile} via ${channelName}`,
         sessionId,
         expiresIn: 300, // 5 minutes in seconds
+        channel: result.channel || channel,
       });
     } else {
       // Send OTP via Email
@@ -316,15 +325,22 @@ const resendOtp = async (req, res) => {
       // Format phone number with country code
       const formattedPhone = formatPhoneNumber(mobile);
       
-      // Send OTP via SMS
-      await sendOtpSMS(formattedPhone, otp);
+      // Determine OTP channel (WhatsApp or SMS)
+      const useWhatsApp = process.env.USE_WHATSAPP_OTP === 'true';
+      const channel = useWhatsApp ? 'whatsapp' : 'sms';
       
-      console.log(`Resent OTP for ${mobile}: ${otp} (Session: ${newSessionId})`);
+      // Send OTP via preferred channel (with SMS fallback)
+      const result = await sendOtpViaTwilio(formattedPhone, otp, channel);
+      
+      const channelName = result.channel === 'whatsapp' ? 'WhatsApp' : 'SMS';
+      console.log(`Resent OTP for ${mobile} via ${result.channel || channel}: ${otp} (Session: ${newSessionId})`);
+      
       res.json({
         success: true,
-        message: `OTP resent to +91 ${mobile}`,
+        message: `OTP resent to +91 ${mobile} via ${channelName}`,
         sessionId: newSessionId,
         expiresIn: 300,
+        channel: result.channel || channel,
       });
     } else {
       await sendEmail({

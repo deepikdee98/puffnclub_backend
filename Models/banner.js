@@ -4,10 +4,9 @@ const bannerSchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: [true, "Title is required"],
       trim: true,
-      minlength: [3, "Title must be at least 3 characters"],
       maxlength: [100, "Title must not exceed 100 characters"],
+      default: "",
     },
     subtitle: {
       type: String,

@@ -27,6 +27,9 @@ const createProduct = asyncHandler(async (req, res) => {
       brand,
       price,
       comparePrice,
+      customerPrice,
+      vendorPrice,
+      originalPrice,
       status,
       isFeatured,
       tags,
@@ -37,10 +40,33 @@ const createProduct = asyncHandler(async (req, res) => {
     } = req.body;
 
     // Check basic required fields
-    if (!name || !sku || !description || !category || !brand || !price || !status) {
+    // Support both old (price) and new (customerPrice, vendorPrice, originalPrice) pricing fields
+    const hasOldPricing = price !== undefined && price !== null;
+    const hasNewPricing = customerPrice !== undefined && vendorPrice !== undefined && originalPrice !== undefined;
+    
+    // Normalize status to lowercase for comparison (default to "draft" if not provided)
+    const normalizedStatus = status ? status.toLowerCase() : "draft";
+    const isActive = normalizedStatus === "active";
+    
+    // Validate status value if provided
+    if (status && !["draft", "active", "inactive"].includes(normalizedStatus)) {
       res.status(400);
-      throw new Error("Required fields are missing");
+      throw new Error("Invalid status. Must be 'draft', 'active', or 'inactive'");
     }
+    
+    // If status is active, all fields are required
+    if (isActive) {
+      if (!name || !sku || !description || !category || !brand) {
+        res.status(400);
+        throw new Error("All fields are required when status is 'active'");
+      }
+      
+      if (!hasOldPricing && !hasNewPricing) {
+        res.status(400);
+        throw new Error("Pricing information is required when status is 'active' (either price or customerPrice/vendorPrice/originalPrice)");
+      }
+    }
+    // If status is not active, fields are optional
 
     // Parse variants data
     console.log("=== PARSING VARIANTS FROM BODY ===");
@@ -202,53 +228,59 @@ const createProduct = asyncHandler(async (req, res) => {
     console.log("Variants array length:", variants.length);
     console.log("Variants array:", JSON.stringify(variants, null, 2));
 
-    // Validate variants
-    if (variants.length === 0) {
+    // Normalize status to lowercase for comparison (if not already set above)
+    const normalizedStatus = status ? status.toLowerCase() : "draft";
+    const isActive = normalizedStatus === "active";
+
+    // Validate variants - only required if status is active
+    if (isActive && variants.length === 0) {
       res.status(400);
-      throw new Error("At least one variant is required");
+      throw new Error("At least one variant is required when status is 'active'");
     }
 
-    // Check if all variants have required fields
-    for (let i = 0; i < variants.length; i++) {
-      const variant = variants[i];
-      console.log(`Checking variant ${i + 1}:`, JSON.stringify(variant, null, 2));
-      
-      if (!variant.color) {
-        console.log(`Variant ${i + 1} missing color:`, variant.color);
-        res.status(400);
-        throw new Error(`Variant ${i + 1} is missing color`);
-      }
-      
-      // Check for new sizeStocks structure or legacy sizes/stock
-      if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
-        if (variant.sizeStocks.length === 0) {
-          console.log(`Variant ${i + 1} has empty sizeStocks array`);
+    // Check if all variants have required fields - only validate if status is active
+    if (isActive && variants.length > 0) {
+      for (let i = 0; i < variants.length; i++) {
+        const variant = variants[i];
+        console.log(`Checking variant ${i + 1}:`, JSON.stringify(variant, null, 2));
+        
+        if (!variant.color) {
+          console.log(`Variant ${i + 1} missing color:`, variant.color);
           res.status(400);
-          throw new Error(`Variant ${i + 1} must have at least one size`);
+          throw new Error(`Variant ${i + 1} is missing color`);
         }
-        if (variant.totalStock === undefined) {
-          console.log(`Variant ${i + 1} missing totalStock`);
+        
+        // Check for new sizeStocks structure or legacy sizes/stock
+        if (variant.sizeStocks && Array.isArray(variant.sizeStocks)) {
+          if (variant.sizeStocks.length === 0) {
+            console.log(`Variant ${i + 1} has empty sizeStocks array`);
+            res.status(400);
+            throw new Error(`Variant ${i + 1} must have at least one size`);
+          }
+          if (variant.totalStock === undefined) {
+            console.log(`Variant ${i + 1} missing totalStock`);
+            res.status(400);
+            throw new Error(`Variant ${i + 1} is missing totalStock`);
+          }
+        } else {
+          // Legacy validation
+          if (variant.stock === undefined) {
+            console.log(`Variant ${i + 1} missing stock:`, variant.stock);
+            res.status(400);
+            throw new Error(`Variant ${i + 1} is missing stock`);
+          }
+          if (!variant.sizes || variant.sizes.length === 0) {
+            console.log(`Variant ${i + 1} missing sizes:`, variant.sizes);
+            res.status(400);
+            throw new Error(`Variant ${i + 1} is missing sizes`);
+          }
+        }
+        
+        if (!variant.images || variant.images.length === 0) {
+          console.log(`Variant ${i + 1} missing images:`, variant.images);
           res.status(400);
-          throw new Error(`Variant ${i + 1} is missing totalStock`);
+          throw new Error(`Variant ${i + 1} must have at least one image`);
         }
-      } else {
-        // Legacy validation
-        if (variant.stock === undefined) {
-          console.log(`Variant ${i + 1} missing stock:`, variant.stock);
-          res.status(400);
-          throw new Error(`Variant ${i + 1} is missing stock`);
-        }
-        if (!variant.sizes || variant.sizes.length === 0) {
-          console.log(`Variant ${i + 1} missing sizes:`, variant.sizes);
-          res.status(400);
-          throw new Error(`Variant ${i + 1} is missing sizes`);
-        }
-      }
-      
-      if (!variant.images || variant.images.length === 0) {
-        console.log(`Variant ${i + 1} missing images:`, variant.images);
-        res.status(400);
-        throw new Error(`Variant ${i + 1} must have at least one image`);
       }
     }
 
@@ -287,14 +319,13 @@ const createProduct = asyncHandler(async (req, res) => {
     }
     
     // Create the product with variant structure
-    const newProduct = new Product({
+    // Handle both old and new pricing fields for backward compatibility
+    const productData = {
       name,
       sku,
       description,
       category,
       brand,
-      price: Number(price),
-      comparePrice: comparePrice ? Number(comparePrice) : undefined,
       status: status.toLowerCase(), // Convert to lowercase for consistency
       isFeatured: isFeatured === "true" || isFeatured === true,
       tags: processedTags,
@@ -304,7 +335,31 @@ const createProduct = asyncHandler(async (req, res) => {
       sizeChartImage: sizeChartImageUrl || undefined,
       sizeChartMeasurements: processedSizeChartMeasurements.length > 0 ? processedSizeChartMeasurements : undefined,
       sizeChartUnit: sizeChartUnit && ["inches", "cm"].includes(sizeChartUnit) ? sizeChartUnit : undefined,
-    });
+    };
+    
+    // Add pricing fields - prefer new fields, fallback to old for backward compatibility
+    if (customerPrice !== undefined && vendorPrice !== undefined && originalPrice !== undefined) {
+      productData.customerPrice = Number(customerPrice);
+      productData.vendorPrice = Number(vendorPrice);
+      productData.originalPrice = Number(originalPrice);
+      // Also set price for backward compatibility (use customerPrice)
+      productData.price = Number(customerPrice);
+      if (comparePrice) {
+        productData.comparePrice = Number(comparePrice);
+      } else {
+        productData.comparePrice = Number(originalPrice);
+      }
+    } else {
+      // Old pricing structure
+      productData.price = Number(price);
+      productData.comparePrice = comparePrice ? Number(comparePrice) : undefined;
+      // Set new pricing fields from old ones for migration
+      productData.customerPrice = Number(price);
+      productData.vendorPrice = Number(price); // Default to same as customer price
+      productData.originalPrice = comparePrice ? Number(comparePrice) : Number(price);
+    }
+    
+    const newProduct = new Product(productData);
 
     console.log("Product to save:", JSON.stringify(newProduct, null, 2));
 
@@ -425,12 +480,39 @@ const updateProductById = asyncHandler(async (req, res) => {
       }
     }
 
-    // Number fields
+    // Pricing fields - support both old and new structure
+    // New pricing fields (preferred)
+    if (req.body.customerPrice !== undefined && !isNaN(Number(req.body.customerPrice))) {
+      updateData.customerPrice = Number(req.body.customerPrice);
+      // Also update price for backward compatibility
+      updateData.price = Number(req.body.customerPrice);
+    }
+    if (req.body.vendorPrice !== undefined && !isNaN(Number(req.body.vendorPrice))) {
+      updateData.vendorPrice = Number(req.body.vendorPrice);
+    }
+    if (req.body.originalPrice !== undefined && !isNaN(Number(req.body.originalPrice))) {
+      updateData.originalPrice = Number(req.body.originalPrice);
+      // Also update comparePrice for backward compatibility
+      updateData.comparePrice = Number(req.body.originalPrice);
+    }
+    
+    // Old pricing fields (for backward compatibility)
     if (req.body.price && !isNaN(Number(req.body.price))) {
       updateData.price = Number(req.body.price);
+      // If new fields not provided, set them from old fields
+      if (req.body.customerPrice === undefined) {
+        updateData.customerPrice = Number(req.body.price);
+      }
+      if (req.body.vendorPrice === undefined) {
+        updateData.vendorPrice = Number(req.body.price);
+      }
     }
     if (req.body.comparePrice && !isNaN(Number(req.body.comparePrice))) {
       updateData.comparePrice = Number(req.body.comparePrice);
+      // If originalPrice not provided, set it from comparePrice
+      if (req.body.originalPrice === undefined) {
+        updateData.originalPrice = Number(req.body.comparePrice);
+      }
     }
     if (req.body.stockQuantity && !isNaN(Number(req.body.stockQuantity))) {
       updateData.stockQuantity = Number(req.body.stockQuantity);
@@ -629,8 +711,13 @@ const updateProductById = asyncHandler(async (req, res) => {
         isNewVariant: !product.variants || !product.variants.find(existing => existing.color === v.color)
       })));
 
-      // Validate variants
-      if (variants.length > 0) {
+      // Check if status is active to determine if validation is needed
+      const newStatus = updateData.status || product.status;
+      const normalizedStatus = newStatus ? newStatus.toLowerCase() : "draft";
+      const isActive = normalizedStatus === "active";
+      
+      // Validate variants - only required if status is active
+      if (isActive && variants.length > 0) {
         for (let i = 0; i < variants.length; i++) {
           const variant = variants[i];
           
@@ -679,6 +766,10 @@ const updateProductById = asyncHandler(async (req, res) => {
         }
         
         console.log(`All ${variants.length} variants validated successfully`);
+      }
+      
+      // Set variants in updateData if provided
+      if (variants.length > 0) {
         updateData.variants = variants;
       }
     } else {
@@ -699,6 +790,35 @@ const updateProductById = asyncHandler(async (req, res) => {
     }
 
     console.log("Final update data:", updateData);
+    
+    // Check if status is being set to "active" - if so, validate all required fields
+    const newStatus = updateData.status || product.status;
+    const normalizedStatus = newStatus ? newStatus.toLowerCase() : "draft";
+    const isActive = normalizedStatus === "active";
+    
+    // If status is active, validate all required fields are present
+    if (isActive) {
+      const finalProduct = { ...product.toObject(), ...updateData };
+      
+      if (!finalProduct.name || !finalProduct.sku || !finalProduct.description || 
+          !finalProduct.category || !finalProduct.brand) {
+        return res.status(400).json({ 
+          error: "All fields (name, sku, description, category, brand) are required when status is 'active'" 
+        });
+      }
+      
+      if (!finalProduct.customerPrice || !finalProduct.vendorPrice || !finalProduct.originalPrice) {
+        return res.status(400).json({ 
+          error: "All pricing fields (customerPrice, vendorPrice, originalPrice) are required when status is 'active'" 
+        });
+      }
+      
+      if (!finalProduct.variants || finalProduct.variants.length === 0) {
+        return res.status(400).json({ 
+          error: "At least one variant is required when status is 'active'" 
+        });
+      }
+    }
     
     // Log variants specifically before database update
     if (updateData.variants) {

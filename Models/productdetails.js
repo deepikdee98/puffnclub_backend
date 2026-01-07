@@ -4,17 +4,17 @@ const mongoose = require("mongoose");
 const sizeStockSchema = new mongoose.Schema({
   size: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
   },
   stock: {
     type: Number,
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
     min: 0,
     default: 0,
   },
   available: {
     type: Boolean,
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
     default: false,
   }
 }, { _id: false });
@@ -23,32 +23,34 @@ const sizeStockSchema = new mongoose.Schema({
 const variantSchema = new mongoose.Schema({
   color: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
   },
   sizeStocks: {
     type: [sizeStockSchema],
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
     validate: {
       validator: function(v) {
-        return v && v.length > 0;
+        // Validation handled in controller based on product status
+        return true;
       },
-      message: 'At least one size must be specified'
+      message: 'At least one size must be specified when product status is active'
     }
   },
   totalStock: {
     type: Number,
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
     min: 0,
     default: 0,
   },
   images: {
     type: [String],
-    required: true,
+    required: false, // Conditionally required based on product status (validated in controller)
     validate: {
       validator: function(v) {
-        return v && v.length > 0;
+        // Validation handled in controller based on product status
+        return true;
       },
-      message: 'At least one image must be specified'
+      message: 'At least one image must be specified when product status is active'
     }
   },
   
@@ -65,31 +67,45 @@ const variantSchema = new mongoose.Schema({
 const productDetailsSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
   },
   sku: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
     unique: true,
+    sparse: true, // Allow multiple null/undefined values
   },
   description: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
   },
   category: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
   },
   brand: {
     type: String,
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
   },
   price: {
     type: Number,
-    required: true,
+    // Keep for backward compatibility
   },
   comparePrice: {
     type: Number,
+    // Keep for backward compatibility
+  },
+  customerPrice: {
+    type: Number,
+    required: false, // Conditionally required based on status (validated in controller)
+  },
+  vendorPrice: {
+    type: Number,
+    required: false, // Conditionally required based on status (validated in controller)
+  },
+  originalPrice: {
+    type: Number,
+    required: false, // Conditionally required based on status (validated in controller)
   },
   status: {
     type: String,
@@ -106,12 +122,16 @@ const productDetailsSchema = new mongoose.Schema({
   },
   variants: {
     type: [variantSchema],
-    required: true,
+    required: false, // Conditionally required based on status (validated in controller)
     validate: {
       validator: function(v) {
-        return v && v.length > 0;
+        // Only validate if status is active
+        if (this.status === 'active') {
+          return v && v.length > 0;
+        }
+        return true; // Allow empty for draft/inactive
       },
-      message: 'At least one variant must be specified'
+      message: 'At least one variant must be specified when status is active'
     }
   },
   metaTitle: {

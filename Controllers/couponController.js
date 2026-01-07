@@ -1,5 +1,7 @@
 const Coupon = require('../Models/coupon');
+const Product = require('../Models/productdetails');
 const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
 
 // @desc    Get all coupons
 // @route   GET /api/coupons
@@ -48,6 +50,7 @@ const getCoupons = asyncHandler(async (req, res) => {
       .limit(parseInt(limit))
       .populate('createdBy', 'name email')
       .populate('applicableCategories', 'name')
+      .populate('applicableProducts', 'name sku price')
       .lean(),
     Coupon.countDocuments(query),
   ]);
@@ -158,6 +161,35 @@ const createCoupon = asyncHandler(async (req, res) => {
     throw new Error('Discount value must be greater than 0');
   }
 
+  // Validate and process applicableProducts if provided
+  let processedApplicableProducts = [];
+  if (applicableProducts && Array.isArray(applicableProducts) && applicableProducts.length > 0) {
+    // Validate that all product IDs are valid ObjectIds
+    const validProductIds = applicableProducts.filter(id => {
+      return mongoose.Types.ObjectId.isValid(id);
+    });
+    
+    if (validProductIds.length !== applicableProducts.length) {
+      res.status(400);
+      throw new Error('Invalid product ID format in applicableProducts');
+    }
+    
+    // Verify that all products exist
+    const existingProducts = await Product.find({
+      _id: { $in: validProductIds }
+    }).select('_id');
+    
+    if (existingProducts.length !== validProductIds.length) {
+      res.status(400);
+      throw new Error('One or more products in applicableProducts do not exist');
+    }
+    
+    processedApplicableProducts = validProductIds;
+  }
+
+  // Set applicableToAll based on whether products are specified
+  const finalApplicableToAll = processedApplicableProducts.length > 0 ? false : (applicableToAll !== undefined ? applicableToAll : true);
+
   const coupon = await Coupon.create({
     code: code.toUpperCase().trim(),
     description,
@@ -170,10 +202,10 @@ const createCoupon = asyncHandler(async (req, res) => {
     startDate: start,
     endDate: end,
     isActive: isActive !== undefined ? isActive : true,
-    applicableProducts: applicableProducts || [],
+    applicableProducts: processedApplicableProducts,
     applicableCategories: applicableCategories || [],
     excludedProducts: excludedProducts || [],
-    applicableToAll: applicableToAll !== undefined ? applicableToAll : true,
+    applicableToAll: finalApplicableToAll,
     firstTimeUserOnly: firstTimeUserOnly || false,
     freeShipping: freeShipping || false,
     createdBy: req.user?._id || req.user?.id,
@@ -181,7 +213,8 @@ const createCoupon = asyncHandler(async (req, res) => {
 
   const populatedCoupon = await Coupon.findById(coupon._id)
     .populate('createdBy', 'name email')
-    .populate('applicableCategories', 'name');
+    .populate('applicableCategories', 'name')
+    .populate('applicableProducts', 'name sku price');
 
   res.status(201).json({
     success: true,
@@ -251,6 +284,42 @@ const updateCoupon = asyncHandler(async (req, res) => {
     }
   }
 
+  // Validate and process applicableProducts if provided
+  let processedApplicableProducts = undefined;
+  if (applicableProducts !== undefined) {
+    if (Array.isArray(applicableProducts)) {
+      if (applicableProducts.length > 0) {
+        // Validate that all product IDs are valid ObjectIds
+        const validProductIds = applicableProducts.filter(id => {
+          return mongoose.Types.ObjectId.isValid(id);
+        });
+        
+        if (validProductIds.length !== applicableProducts.length) {
+          res.status(400);
+          throw new Error('Invalid product ID format in applicableProducts');
+        }
+        
+        // Verify that all products exist
+        const existingProducts = await Product.find({
+          _id: { $in: validProductIds }
+        }).select('_id');
+        
+        if (existingProducts.length !== validProductIds.length) {
+          res.status(400);
+          throw new Error('One or more products in applicableProducts do not exist');
+        }
+        
+        processedApplicableProducts = validProductIds;
+      } else {
+        // Empty array means no products
+        processedApplicableProducts = [];
+      }
+    } else {
+      res.status(400);
+      throw new Error('applicableProducts must be an array');
+    }
+  }
+
   // Update fields
   if (code) coupon.code = code.toUpperCase().trim();
   if (description !== undefined) coupon.description = description;
@@ -263,10 +332,20 @@ const updateCoupon = asyncHandler(async (req, res) => {
   if (startDate) coupon.startDate = start;
   if (endDate) coupon.endDate = end;
   if (isActive !== undefined) coupon.isActive = isActive;
-  if (applicableProducts !== undefined) coupon.applicableProducts = applicableProducts;
+  if (processedApplicableProducts !== undefined) {
+    coupon.applicableProducts = processedApplicableProducts;
+    // Auto-set applicableToAll based on whether products are specified
+    if (processedApplicableProducts.length > 0) {
+      coupon.applicableToAll = false;
+    } else if (applicableToAll !== undefined) {
+      coupon.applicableToAll = applicableToAll;
+    }
+  }
   if (applicableCategories !== undefined) coupon.applicableCategories = applicableCategories;
   if (excludedProducts !== undefined) coupon.excludedProducts = excludedProducts;
-  if (applicableToAll !== undefined) coupon.applicableToAll = applicableToAll;
+  if (applicableToAll !== undefined && processedApplicableProducts === undefined) {
+    coupon.applicableToAll = applicableToAll;
+  }
   if (firstTimeUserOnly !== undefined) coupon.firstTimeUserOnly = firstTimeUserOnly;
   if (freeShipping !== undefined) coupon.freeShipping = freeShipping;
 
@@ -274,7 +353,8 @@ const updateCoupon = asyncHandler(async (req, res) => {
 
   const updatedCoupon = await Coupon.findById(coupon._id)
     .populate('createdBy', 'name email')
-    .populate('applicableCategories', 'name');
+    .populate('applicableCategories', 'name')
+    .populate('applicableProducts', 'name sku price');
 
   res.status(200).json({
     success: true,

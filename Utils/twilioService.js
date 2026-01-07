@@ -1,6 +1,6 @@
 /**
  * SMS/OTP Service using 2Factor.in API
- * This service handles OTP sending via SMS using 2Factor.in
+ * This service handles OTP sending via SMS and WhatsApp using 2Factor.in
  * Documentation: https://2factor.in/
  */
 
@@ -92,6 +92,107 @@ const sendOtpSMS = async (phoneNumber, otp) => {
 };
 
 /**
+ * Send OTP via WhatsApp using 2Factor.in API
+ * 2Factor.in WhatsApp API: https://2factor.in/API/V1/{API_KEY}/ADDON_SERVICES/SEND/TSMS/{PHONE}/{OTP}
+ * @param {string} phoneNumber - Phone number with country code (e.g., +919876543210)
+ * @param {string} otp - OTP code to send
+ * @returns {Promise<object>} - Response object
+ */
+const sendOtpWhatsApp = async (phoneNumber, otp) => {
+  try {
+    const apiKey = process.env.TWOFACTOR_API_KEY;
+    
+    if (!apiKey) {
+      console.warn('⚠️  TWOFACTOR_API_KEY not configured. WhatsApp OTP will be logged to console.');
+      console.log('='.repeat(50));
+      console.log('📱 WHATSAPP OTP WOULD BE SENT (2Factor.in not configured):');
+      console.log(`To: ${phoneNumber}`);
+      console.log(`OTP: ${otp}`);
+      console.log('='.repeat(50));
+      
+      return {
+        success: true,
+        message: 'WhatsApp OTP logged to console (2Factor.in not configured)',
+        sid: 'dev-mode-whatsapp-' + Date.now(),
+        channel: 'whatsapp',
+      };
+    }
+    
+    // Format phone number for 2Factor.in (remove + and keep only digits)
+    const formattedPhone = formatPhoneFor2Factor(phoneNumber);
+    
+    // 2Factor.in WhatsApp API endpoint for sending OTP
+    // Format: https://2factor.in/API/V1/{API_KEY}/ADDON_SERVICES/SEND/TSMS/{PHONE}/{OTP}
+    const apiUrl = `https://2factor.in/API/V1/${apiKey}/ADDON_SERVICES/SEND/TSMS/${formattedPhone}/${otp}`;
+    
+    console.log(`Sending OTP via WhatsApp (2Factor.in) to ${formattedPhone}...`);
+    
+    const response = await axios.get(apiUrl);
+    
+    if (response.data && response.data.Status === 'Success') {
+      console.log(`✅ OTP sent successfully via WhatsApp (2Factor.in) to ${formattedPhone}`);
+      return {
+        success: true,
+        message: 'OTP sent successfully via WhatsApp',
+        sid: response.data.Details || '2factor-whatsapp-' + Date.now(),
+        status: response.data.Status,
+        channel: 'whatsapp',
+      };
+    } else {
+      console.error('❌ 2Factor.in WhatsApp API error:', response.data);
+      throw new Error(response.data.Details || 'Failed to send OTP via WhatsApp (2Factor.in)');
+    }
+  } catch (error) {
+    console.error('❌ Failed to send OTP via WhatsApp (2Factor.in):', error.message);
+    
+    // In development, log OTP to console instead of failing
+    if (process.env.NODE_ENV === 'development') {
+      console.log('='.repeat(50));
+      console.log('⚠️  WHATSAPP OTP FAILED - DEVELOPMENT MODE');
+      console.log(`📱 To: ${phoneNumber}`);
+      console.log(`🔑 OTP: ${otp}`);
+      console.log('💡 OTP is logged above for testing');
+      console.log('='.repeat(50));
+      
+      return {
+        success: true,
+        message: 'WhatsApp OTP logged to console (development mode)',
+        sid: 'dev-mode-whatsapp-' + Date.now(),
+        channel: 'whatsapp',
+        error: error.message,
+      };
+    }
+    
+    throw new Error(`Failed to send OTP via WhatsApp (2Factor.in): ${error.message}`);
+  }
+};
+
+/**
+ * Send OTP via preferred channel (SMS or WhatsApp)
+ * Uses environment variable USE_WHATSAPP_OTP to determine channel
+ * @param {string} phoneNumber - Phone number with country code (e.g., +919876543210)
+ * @param {string} otp - OTP code to send
+ * @param {string} preferredChannel - 'sms' or 'whatsapp' (default: from env or 'sms')
+ * @returns {Promise<object>} - Response object
+ */
+const sendOtp = async (phoneNumber, otp, preferredChannel = null) => {
+  // Determine channel: prefer parameter > env variable > default to SMS
+  const channel = preferredChannel || (process.env.USE_WHATSAPP_OTP === 'true' ? 'whatsapp' : 'sms');
+  
+  if (channel === 'whatsapp') {
+    try {
+      return await sendOtpWhatsApp(phoneNumber, otp);
+    } catch (error) {
+      // Fallback to SMS if WhatsApp fails
+      console.warn('⚠️  WhatsApp OTP failed, falling back to SMS:', error.message);
+      return await sendOtpSMS(phoneNumber, otp);
+    }
+  } else {
+    return await sendOtpSMS(phoneNumber, otp);
+  }
+};
+
+/**
  * Send SMS (generic function - currently uses sendOtpSMS)
  * @param {string} to - Phone number with country code (e.g., +919876543210)
  * @param {string} message - Message to send
@@ -155,6 +256,8 @@ const validateIndianPhoneNumber = (phoneNumber) => {
 module.exports = {
   sendSMS,
   sendOtpSMS,
+  sendOtpWhatsApp,
+  sendOtp, // Smart function that chooses SMS or WhatsApp
   formatPhoneNumber,
   validateIndianPhoneNumber,
 };

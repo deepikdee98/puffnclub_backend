@@ -109,25 +109,9 @@ const createBanner = asyncHandler(async (req, res) => {
       });
     }
 
-    // Validate required fields
-    if (!title) {
-      return res.status(400).json({
-        success: false,
-        message: "Title is required",
-      });
-    }
-
-    // Validate button text and link relationship
-    if (buttonText && !buttonLink) {
-      return res.status(400).json({
-        success: false,
-        message: "Button link is required when button text is provided",
-      });
-    }
-
-    // Create banner data
+    // Create banner data (title, subtitle, buttonText, buttonLink are now optional)
     const bannerData = {
-      title: title.trim(),
+      title: title?.trim() || "",
       subtitle: subtitle?.trim() || "",
       buttonText: buttonText?.trim() || "",
       buttonLink: buttonLink?.trim() || "",
@@ -199,25 +183,9 @@ const updateBanner = asyncHandler(async (req, res) => {
       });
     }
 
-    // Validate required fields
-    if (!title) {
-      return res.status(400).json({
-        success: false,
-        message: "Title is required",
-      });
-    }
-
-    // Validate button text and link relationship
-    if (buttonText && !buttonLink) {
-      return res.status(400).json({
-        success: false,
-        message: "Button link is required when button text is provided",
-      });
-    }
-
-    // Prepare update data
+    // Prepare update data (title, subtitle, buttonText, buttonLink are now optional)
     const updateData = {
-      title: title.trim(),
+      title: title?.trim() || "",
       subtitle: subtitle?.trim() || "",
       buttonText: buttonText?.trim() || "",
       buttonLink: buttonLink?.trim() || "",

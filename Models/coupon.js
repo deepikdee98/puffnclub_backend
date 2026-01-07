@@ -84,7 +84,7 @@ const couponSchema = new mongoose.Schema(
     applicableProducts: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Product',
+        ref: 'productdetails',
       },
     ],
     applicableCategories: [
@@ -96,7 +96,7 @@ const couponSchema = new mongoose.Schema(
     excludedProducts: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Product',
+        ref: 'productdetails',
       },
     ],
     applicableToAll: {
