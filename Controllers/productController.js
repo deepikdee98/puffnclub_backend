@@ -228,10 +228,6 @@ const createProduct = asyncHandler(async (req, res) => {
     console.log("Variants array length:", variants.length);
     console.log("Variants array:", JSON.stringify(variants, null, 2));
 
-    // Normalize status to lowercase for comparison (if not already set above)
-    const normalizedStatus = status ? status.toLowerCase() : "draft";
-    const isActive = normalizedStatus === "active";
-
     // Validate variants - only required if status is active
     if (isActive && variants.length === 0) {
       res.status(400);

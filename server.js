@@ -4,8 +4,6 @@ const dotenv = require("dotenv").config();
 const cors = require("cors");
 const path = require("path");
 
-connectDb();
-
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -34,11 +32,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-app.options("*", cors());
-
-// ✅ VERY IMPORTANT: handle preflight
-app.options("*", cors());
 
 /* ================================
    BODY PARSERS
@@ -100,6 +93,11 @@ app.use("/api/shiprocket", require("./Routes/shiprocketCheckoutRoute"));
 /* ================================
    SERVER START
 ================================ */
-app.listen(port, "0.0.0.0", () => {
-  console.log(`🚀 Server running on port ${port}`);
-});
+const startServer = async () => {
+  await connectDb();
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 Server running on port ${port}`);
+  });
+};
+
+startServer();
