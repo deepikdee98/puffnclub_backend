@@ -10,9 +10,28 @@ const port = process.env.PORT || 5000;
 /* ================================
    CORS CONFIG (PRODUCTION SAFE)
 ================================ */
-const allowedOrigins = [
+const defaultAllowedOrigins = [
   "https://puffnclub.com",
   "https://www.puffnclub.com",
+];
+
+const envAllowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const devAllowedOrigins =
+  process.env.NODE_ENV === "production"
+    ? []
+    : [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+      ];
+
+const allowedOrigins = [
+  ...new Set([...defaultAllowedOrigins, ...envAllowedOrigins, ...devAllowedOrigins]),
 ];
 
 app.use(
@@ -24,7 +43,7 @@ app.use(
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       } else {
-        return callback(new Error("CORS not allowed"));
+        return callback(null, false);
       }
     },
     credentials: true,
